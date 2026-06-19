@@ -25,16 +25,16 @@ export const defaultReviewAgents: readonly ReviewRole[] = [
 ];
 
 export const defaultWorkflowMapping: Record<IssueType, string> = {
-  feature: "feature",
-  bugfix: "bugfix",
-  refactor: "refactor",
-  research: "research",
-  investigation: "research",
-  planning: "planning",
-  mvp: "mvp",
-  harness: "harness",
-  documentation: "feature",
-  decision: "planning",
+  feature: "feature-development",
+  bugfix: "bug-fix",
+  refactor: "refactoring",
+  research: "feature-development",
+  investigation: "feature-development",
+  planning: "mvp-planning",
+  mvp: "mvp-planning",
+  harness: "feature-development",
+  documentation: "feature-development",
+  decision: "feature-development",
 };
 
 type HumanGateField = keyof HumanGateConfig;

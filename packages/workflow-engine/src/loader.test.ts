@@ -8,6 +8,7 @@ import {
   createInitialWorkflowState,
   createWorkflowStepContext,
   loadWorkflowDefinitionFromFile,
+  loadWorkflowDefinitionFromWorkspace,
   runWorkflowStep,
 } from "./index.js";
 
@@ -122,4 +123,92 @@ test("loadWorkflowDefinitionFromFile supports shell workflow blueprints", async 
 
   assert.equal(outcome.status, "completed");
   assert.equal(outcome.nextStep, "Ship");
+});
+
+test("loadWorkflowDefinitionFromWorkspace supports markdown workflow folders", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-markdown-workflow-"));
+  const workflowDir = join(rootDir, ".agent", "workflows", "feature-development");
+  await mkdir(workflowDir, { recursive: true });
+
+  await writeFile(join(workflowDir, "README.md"), [
+    "# Feature Development",
+    "",
+    "Generated workflow.",
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(join(workflowDir, "01-intake.md"), [
+    "---",
+    "workflow: feature-development",
+    "name: Intake",
+    "human_gate: always",
+    "next: Analysis",
+    "---",
+    "",
+    "# Intake",
+    "",
+    "## Required Inputs",
+    "- The current request or issue summary.",
+    "",
+    "## Evidence Required",
+    "- The step note itself.",
+    "",
+    "## Exit Criteria",
+    "- The intake outcome is documented.",
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(join(workflowDir, "02-analysis.md"), [
+    "---",
+    "workflow: feature-development",
+    "name: Analysis",
+    "human_gate: never",
+    "next: Close",
+    "---",
+    "",
+    "# Analysis",
+    "",
+    "## Required Inputs",
+    "- The project profile.",
+    "",
+  ].join("\n"), "utf8");
+
+  const workflow = await loadWorkflowDefinitionFromWorkspace(rootDir, "feature-development");
+  assert.ok(workflow);
+  assert.equal(workflow.id, "feature-development");
+  assert.equal(workflow.name, "Feature Development");
+  assert.equal(workflow.steps[0]?.name, "Intake");
+  assert.equal(workflow.steps[0]?.humanGate, "always");
+  assert.equal(workflow.steps[1]?.name, "Analysis");
+
+  const issueId = "ISSUE-001-MARKDOWN";
+  const initialState = createInitialWorkflowState(workflow, "2026-06-19T00:00:00.000Z");
+  await createIssueEvidenceFiles(rootDir, issueId, initialState);
+  const context = createWorkflowStepContext({
+    issueId,
+    issueType: "feature",
+    workflowId: workflow.id,
+    stepName: "Intake",
+    rootDir,
+    state: initialState,
+  });
+
+  const waiting = await runWorkflowStep({
+    workflow,
+    state: initialState,
+    context,
+    timestamp: "2026-06-19T00:01:00.000Z",
+  });
+
+  assert.equal(waiting.status, "waiting_approval");
+  assert.equal(waiting.state.currentStep, "Intake");
+
+  const completed = await runWorkflowStep({
+    workflow,
+    state: waiting.state,
+    context,
+    timestamp: "2026-06-19T00:02:00.000Z",
+    approved: true,
+  });
+
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.nextStep, "Analysis");
 });

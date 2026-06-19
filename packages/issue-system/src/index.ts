@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import type {
   EvidenceRecord,
+  IssueDecomposition,
   IssueRecord,
   IssueState,
   IssueType,
@@ -10,6 +11,7 @@ import type {
 } from "@flowness/core";
 import {
   ensureDirectory,
+  defaultWorkflowMapping,
   issueTypeValues,
   pathExists,
   readJsonFile,
@@ -21,27 +23,7 @@ import {
 } from "@flowness/core";
 
 export function selectWorkflowForIssueType(type: IssueType): string {
-  switch (type) {
-    case "feature":
-      return "feature";
-    case "bugfix":
-      return "bugfix";
-    case "refactor":
-      return "refactor";
-    case "research":
-    case "investigation":
-      return "research";
-    case "planning":
-      return "planning";
-    case "mvp":
-      return "mvp";
-    case "harness":
-      return "harness";
-    case "documentation":
-      return "feature";
-    case "decision":
-      return "planning";
-  }
+  return defaultWorkflowMapping[type];
 }
 
 export function formatIssueDirectoryName(issueId: string): string {
@@ -64,6 +46,13 @@ export function createIssueRecord(
     readonly workflowId?: string;
     readonly directory?: string;
     readonly logPath?: string;
+    readonly parentIssueId?: string | null;
+    readonly childIssueIds?: readonly string[];
+    readonly goal?: string;
+    readonly acceptanceCriteria?: readonly string[];
+    readonly dependencies?: readonly string[];
+    readonly evidenceRequired?: readonly string[];
+    readonly decompositionFile?: string | null;
   },
 ): IssueRecord {
   const state = issue.state ?? "open";
@@ -81,19 +70,27 @@ export function createIssueRecord(
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
     logPath,
+    ...(issue.parentIssueId === undefined ? {} : { parentIssueId: issue.parentIssueId }),
+    ...(issue.childIssueIds === undefined ? {} : { childIssueIds: [...issue.childIssueIds] }),
+    ...(issue.goal === undefined ? {} : { goal: issue.goal }),
+    ...(issue.acceptanceCriteria === undefined ? {} : { acceptanceCriteria: [...issue.acceptanceCriteria] }),
+    ...(issue.dependencies === undefined ? {} : { dependencies: [...issue.dependencies] }),
+    ...(issue.evidenceRequired === undefined ? {} : { evidenceRequired: [...issue.evidenceRequired] }),
+    ...(issue.decompositionFile === undefined ? {} : { decompositionFile: issue.decompositionFile }),
   };
 }
 
 function createInitialWorkflowState(
   workflow: WorkflowDefinition,
   startedAt: string,
+  blocked = false,
 ): WorkflowState {
   return {
     workflowId: workflow.id,
     currentStep: workflow.steps[0]?.name ?? "",
     completedSteps: [],
     failedSteps: [],
-    blocked: false,
+    blocked,
     updatedAt: startedAt,
     evidence: [],
   };
@@ -128,6 +125,18 @@ function renderIssueMarkdown(
   description: string | undefined,
   workflowStatePath: string,
 ): string {
+  const renderList = (title: string, items: readonly string[] | undefined, fallback: string): string[] => {
+    if (items === undefined) {
+      return [];
+    }
+
+    if (items.length === 0) {
+      return [title, fallback, ""];
+    }
+
+    return [title, ...items.map((item) => `- ${item}`), ""];
+  };
+
   return [
     `# ${issue.id}`,
     "",
@@ -138,7 +147,16 @@ function renderIssueMarkdown(
     `- Updated At: ${issue.updatedAt}`,
     `- Log: ${issue.logPath}`,
     `- Workflow State: ${workflowStatePath}`,
+    ...(issue.parentIssueId === undefined || issue.parentIssueId === null ? [] : [`- Parent Issue: ${issue.parentIssueId}`]),
+    ...(issue.childIssueIds === undefined || issue.childIssueIds.length === 0 ? [] : [`- Child Issues: ${issue.childIssueIds.join(", ")}`]),
+    ...(issue.decompositionFile === undefined || issue.decompositionFile === null ? [] : [`- Decomposition: ${issue.decompositionFile}`]),
     "",
+    "## Goal",
+    issue.goal && issue.goal.trim().length > 0 ? issue.goal : (description && description.trim().length > 0 ? description : "No goal provided."),
+    "",
+    ...renderList("## Acceptance Criteria", issue.acceptanceCriteria, "No acceptance criteria provided."),
+    ...renderList("## Dependencies", issue.dependencies, "No dependencies provided."),
+    ...renderList("## Evidence Required", issue.evidenceRequired, "No evidence requirements provided."),
     "## Description",
     description && description.trim().length > 0 ? description : "No description provided.",
     "",
@@ -165,6 +183,8 @@ function createInitialIssueLogEntry(
     actions: [
       `Created issue workspace for ${issue.id}`,
       `Selected workflow ${issue.workflowId}`,
+      ...(issue.parentIssueId === undefined || issue.parentIssueId === null ? [] : [`Parent issue: ${issue.parentIssueId}`]),
+      ...(issue.childIssueIds === undefined || issue.childIssueIds.length === 0 ? [] : [`Child issues: ${issue.childIssueIds.join(", ")}`]),
     ],
     evidence,
     summary: `Issue ${issue.id} was initialized with append-only log and workflow state.`,
@@ -242,6 +262,14 @@ export interface CreateIssueWorkspaceInput {
   readonly force?: boolean;
   readonly sequence?: number;
   readonly createdAt?: string;
+  readonly initialState?: IssueState;
+  readonly parentIssueId?: string | null;
+  readonly childIssueIds?: readonly string[];
+  readonly goal?: string;
+  readonly acceptanceCriteria?: readonly string[];
+  readonly dependencies?: readonly string[];
+  readonly evidenceRequired?: readonly string[];
+  readonly decomposition?: IssueDecomposition;
 }
 
 export interface CreateIssueWorkspaceResult {
@@ -285,21 +313,33 @@ export async function createIssueWorkspace(
     id: issueId,
     type: input.type,
     title: input.title,
-    state: "open",
+    state: input.initialState ?? "open",
     workflowId: input.workflow.id,
     directory: formatIssueDirectoryName(issueId),
     logPath: `.agent/logs/${issueId}.md`,
     createdAt,
     updatedAt: createdAt,
+    ...(input.parentIssueId === undefined ? {} : { parentIssueId: input.parentIssueId }),
+    ...(input.childIssueIds === undefined ? {} : { childIssueIds: [...input.childIssueIds] }),
+    ...(input.goal === undefined ? {} : { goal: input.goal }),
+    ...(input.acceptanceCriteria === undefined ? {} : { acceptanceCriteria: [...input.acceptanceCriteria] }),
+    ...(input.dependencies === undefined ? {} : { dependencies: [...input.dependencies] }),
+    ...(input.evidenceRequired === undefined ? {} : { evidenceRequired: [...input.evidenceRequired] }),
+    ...(input.decomposition === undefined ? {} : { decompositionFile: issuePaths.decompositionFile }),
   });
 
-  const workflowState = createInitialWorkflowState(input.workflow, createdAt);
+  const workflowState = createInitialWorkflowState(
+    input.workflow,
+    createdAt,
+    input.initialState === "blocked",
+  );
   const issueJson = {
     issue,
     description: input.description ?? null,
     workflowState,
     workflowStatePath: issuePaths.workflowStateFile,
     logPath: issue.logPath,
+    ...(input.decomposition === undefined ? {} : { decomposition: input.decomposition }),
   };
 
   await writeTextFile(
@@ -314,6 +354,11 @@ export async function createIssueWorkspace(
 
   await writeJsonFile(issuePaths.workflowStateFile, workflowState, force);
   createdFiles.push("workflow-state.json");
+
+  if (input.decomposition !== undefined) {
+    await writeJsonFile(issuePaths.decompositionFile, input.decomposition, force);
+    createdFiles.push("decomposition.json");
+  }
 
   await writeTextFile(
     `${issuePaths.decisionsDir}/README.md`,

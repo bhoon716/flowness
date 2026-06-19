@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { appendFile, chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -10,7 +11,17 @@ export function slugify(value: string): string {
 }
 
 export function toUpperSnake(value: string): string {
-  return slugify(value).replace(/-/g, "-").toUpperCase();
+  const normalized = slugify(value).replace(/-/g, "-").toUpperCase();
+  if (normalized !== "UNNAMED") {
+    return normalized;
+  }
+
+  if (value.trim().toLowerCase() === "unnamed") {
+    return "UNNAMED";
+  }
+
+  const hash = createHash("sha1").update(value).digest("hex").slice(0, 8).toUpperCase();
+  return `UNNAMED-${hash}`;
 }
 
 export async function pathExists(path: string): Promise<boolean> {
