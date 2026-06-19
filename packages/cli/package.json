@@ -1,11 +1,11 @@
 {
-  "name": "flowness",
+  "name": "@flowness-labs/cli",
   "version": "0.1.2",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "flowness": "./bin.js"
+    "flowness": "bin.js"
   },
   "exports": {
     ".": {
@@ -13,8 +13,32 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "bin.js"
+  ],
+  "dependencies": {
+    "@flowness-labs/config-system": "^0.1.2",
+    "@flowness-labs/core": "^0.1.2",
+    "@flowness-labs/decision-system": "^0.1.2",
+    "@flowness-labs/evidence-system": "^0.1.2",
+    "@flowness-labs/issue-system": "^0.1.2",
+    "@flowness-labs/log-system": "^0.1.2",
+    "@flowness-labs/review-system": "^0.1.2",
+    "@flowness-labs/workflow-engine": "^0.1.2"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "node --test dist"
-  }
+  },
+  "author": "bhoon716",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flowness-labs/flowness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flowness-labs/flowness/issues"
+  },
+  "homepage": "https://github.com/flowness-labs/flowness#readme"
 }

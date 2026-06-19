@@ -1,5 +1,5 @@
 {
-  "name": "@flowness/log-system",
+  "name": "@flowness-labs/log-system",
   "version": "0.1.2",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,8 +10,24 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@flowness-labs/core": "^0.1.2"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "node --test dist"
-  }
+  },
+  "author": "bhoon716",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flowness-labs/flowness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flowness-labs/flowness/issues"
+  },
+  "homepage": "https://github.com/flowness-labs/flowness#readme"
 }

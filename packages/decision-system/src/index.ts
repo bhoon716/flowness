@@ -1,13 +1,13 @@
 import { mkdir, readdir } from "node:fs/promises";
-import type { DecisionDocument, EvidenceRecord } from "@flowness/core";
+import type { DecisionDocument, EvidenceRecord } from "@flowness-labs/core";
 import {
   joinPaths,
   pathExists,
   readTextFile,
   slugify,
   writeTextFile,
-} from "@flowness/core";
-import { resolveIssuePaths } from "@flowness/core";
+} from "@flowness-labs/core";
+import { resolveIssuePaths } from "@flowness-labs/core";
 
 export function formatDecisionFileName(
   sequence: number,

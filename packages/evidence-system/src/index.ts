@@ -1,5 +1,5 @@
-import type { EvidenceKind, EvidenceRecord } from "@flowness/core";
-import { evidenceKindValues, slugify } from "@flowness/core";
+import type { EvidenceKind, EvidenceRecord } from "@flowness-labs/core";
+import { evidenceKindValues, slugify } from "@flowness-labs/core";
 
 export function normalizeEvidenceKind(value: string): EvidenceKind {
   const normalized = slugify(value).replace(/-/g, "_");

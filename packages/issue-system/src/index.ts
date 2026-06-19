@@ -8,7 +8,7 @@ import type {
   LogEntry,
   WorkflowDefinition,
   WorkflowState,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 import {
   ensureDirectory,
   defaultWorkflowMapping,
@@ -20,7 +20,7 @@ import {
   toUpperSnake,
   writeJsonFile,
   writeTextFile,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 
 export function selectWorkflowForIssueType(type: IssueType): string {
   return defaultWorkflowMapping[type];

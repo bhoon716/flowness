@@ -1,6 +1,6 @@
-import { appendTextFile, pathExists, readTextFile, writeTextFile } from "@flowness/core";
-import type { EvidenceRecord, LogEntry } from "@flowness/core";
-import { resolveIssuePaths } from "@flowness/core";
+import { appendTextFile, pathExists, readTextFile, writeTextFile } from "@flowness-labs/core";
+import type { EvidenceRecord, LogEntry } from "@flowness-labs/core";
+import { resolveIssuePaths } from "@flowness-labs/core";
 
 export function createLogEntry(input: {
   readonly timestamp: string;

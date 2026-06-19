@@ -7,8 +7,8 @@ export {
   readProjectConfig,
   renderProjectConfigYaml,
   writeProjectConfig,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 export type {
   FlownessProjectConfig,
   HumanGateConfig,
-} from "@flowness/core";
+} from "@flowness-labs/core";

@@ -7,7 +7,7 @@ import type {
   ReviewResult,
   ReviewRole,
   WorkflowState,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 import {
   ensureDirectory,
   issueTypeValues,
@@ -17,7 +17,7 @@ import {
   reviewRoleValues,
   slugify,
   writeTextFile,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 
 export interface ReviewRunInput {
   readonly rootDir: string;

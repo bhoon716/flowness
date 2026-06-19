@@ -6,9 +6,9 @@ import type {
   WorkflowStepContext,
   WorkflowStepDefinition,
   WorkflowStepResult,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 import { mergeEvidence, getNextWorkflowStep, defineWorkflow } from "./index.js";
-import { pathExists } from "@flowness/core";
+import { pathExists } from "@flowness-labs/core";
 
 export interface WorkflowStepRunInput {
   readonly workflow: WorkflowDefinition;

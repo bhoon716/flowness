@@ -4,8 +4,8 @@ import type {
   WorkflowDefinition,
   WorkflowStepContext,
   WorkflowStepDefinition,
-} from "@flowness/core";
-import { joinPaths, pathExists, resolveIssuePaths } from "@flowness/core";
+} from "@flowness-labs/core";
+import { joinPaths, pathExists, resolveIssuePaths } from "@flowness-labs/core";
 
 export interface WorkflowStepBlueprint {
   readonly name: string;
@@ -359,8 +359,8 @@ function renderStepSource(workflowName: string, step: WorkflowStepDefinition): s
 
 export function renderWorkflowScaffoldSource(workflow: WorkflowDefinition): string {
   return [
-    'import { defineWorkflow } from "@flowness/workflow-engine";',
-    'import { joinPaths, pathExists, resolveIssuePaths } from "@flowness/core";',
+    'import { defineWorkflow } from "@flowness-labs/workflow-engine";',
+    'import { joinPaths, pathExists, resolveIssuePaths } from "@flowness-labs/core";',
     "",
     "async function collectDefaultStepEvidence(context, workflowName, stepName) {",
     "  const issuePaths = resolveIssuePaths(context.rootDir, context.issueId);",

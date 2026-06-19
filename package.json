@@ -1,5 +1,5 @@
 {
-  "name": "@flowness/monorepo",
+  "name": "@flowness-labs/monorepo",
   "private": true,
   "version": "0.1.2",
   "description": "Flowness monorepo scaffold and CLI workspace.",
@@ -20,5 +20,15 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "author": "bhoon716",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flowness-labs/flowness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flowness-labs/flowness/issues"
+  },
+  "homepage": "https://github.com/flowness-labs/flowness#readme"
 }

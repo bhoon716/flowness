@@ -5,7 +5,7 @@ import type {
   WorkflowStepContext,
   WorkflowStepDefinition,
   WorkflowStepResult,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 export {
   builtinWorkflowDefinitions,
   createGenericWorkflowDefinition,

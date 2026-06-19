@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { EvidenceRecord } from "@flowness/core";
+import type { EvidenceRecord } from "@flowness-labs/core";
 import {
   createInitialWorkflowState,
   createWorkflowStepContext,

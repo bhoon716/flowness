@@ -8,7 +8,7 @@ Issue-driven AI development operating system.
 ## 현재 상태
 
 - monorepo 워크스페이스 골격
-- `flowness init`, `issue:create`, `workflow:create`, `workflow:step`, `workflow:recover` CLI 구현
+- `flowness init`, `request:create`, `issue:create`, `workflow:create`, `workflow:step`, `workflow:recover` CLI 구현
 - `decision:create`, `review:run`, `skill:create`, `rule:create`, `validate`, `upgrade` CLI 구현
 - 핵심 타입, 초기화 스캐폴딩, 결정/리뷰/증거/워크플로우 런타임 구현
 
@@ -20,6 +20,7 @@ npm run build
 npm test
 npm run link:cli   # one-time: makes `flowness` available on PATH
 flowness init ./some-project
+flowness request:create "회원가입 로그인 기능 만들어줘"
 flowness issue:create --title "Sign in" --type feature
 flowness workflow:step --issue ISSUE-001-SIGN-IN --approve
 flowness review:run --issue ISSUE-001-SIGN-IN

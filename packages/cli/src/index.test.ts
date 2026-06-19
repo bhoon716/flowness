@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -32,6 +32,50 @@ async function listIssueDirectories(rootDir: string): Promise<readonly string[]>
   return entries.filter((name) => name.startsWith("ISSUE-"));
 }
 
+async function seedLegacyTicketWorkspace(rootDir: string, requestText: string): Promise<string> {
+  const legacyIssueId = "TICKET-001-LEGACY-SIGN-IN";
+  const issueDir = join(rootDir, ".agent", "issues", legacyIssueId);
+  const now = new Date().toISOString();
+
+  await mkdir(issueDir, { recursive: true });
+  await writeFile(join(issueDir, "issue.json"), JSON.stringify({
+    issue: {
+      id: legacyIssueId,
+      type: "feature",
+      title: "Legacy Sign In",
+      state: "open",
+      workflowId: "feature-development",
+      directory: legacyIssueId,
+      createdAt: now,
+      updatedAt: now,
+      logPath: `.agent/logs/${legacyIssueId}.md`,
+    },
+    description: requestText,
+    workflowState: {
+      workflowId: "feature-development",
+      currentStep: "Intake",
+      completedSteps: [],
+      failedSteps: [],
+      blocked: false,
+      updatedAt: now,
+      evidence: [],
+    },
+    workflowStatePath: join(issueDir, "workflow-state.json"),
+    logPath: `.agent/logs/${legacyIssueId}.md`,
+  }, null, 2), "utf8");
+  await writeFile(join(issueDir, "workflow-state.json"), JSON.stringify({
+    workflowId: "feature-development",
+    currentStep: "Intake",
+    completedSteps: [],
+    failedSteps: [],
+    blocked: false,
+    updatedAt: now,
+    evidence: [],
+  }, null, 2), "utf8");
+
+  return legacyIssueId;
+}
+
 test("parseCommand handles init with options", () => {
   const parsed = parseCommand(["init", "/tmp/demo", "--name", "demo-app", "--force"]);
   assert.equal(parsed.kind, "init");
@@ -58,13 +102,28 @@ test("runCli captures a request as an issue", async () => {
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["request:create", "로그인 기능을 만들어줘"]);
     assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Captured request as issue ISSUE-001-[A-Z0-9-]+/);
+    assert.match(result.output, /Flowness analyzed this as a development task\./);
+    assert.match(result.output, /Created issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
     assert.match(result.output, /Type: feature/);
     assert.match(result.output, /Workflow: feature-development/);
+    assert.match(result.output, /Start with 01-intake\.md \/ clarification before implementation\./);
+    assert.match(result.output, /Implementation is blocked until clarification questions are answered\./);
+    assert.doesNotMatch(result.output, /TICKET-/);
 
     const issueDirectories = await listIssueDirectories(rootDir);
     assert.equal(issueDirectories.length, 1);
   });
+});
+
+test("runCli leaves greetings as answers without issues", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-greeting-"));
+
+  const result = await withWorkingDirectory(rootDir, async () => runCli(["request:create", "안녕하세요"]));
+  assert.equal(result.exitCode, 0);
+  assert.match(result.output, /No issue created\./);
+  assert.match(result.output, /Category: casual_or_question/);
+  assert.match(result.output, /Normal response can continue\./);
+  assert.equal(await exists(join(rootDir, ".agent", "issues")), false);
 });
 
 test("runCli leaves casual questions as answers without issues", async () => {
@@ -74,6 +133,7 @@ test("runCli leaves casual questions as answers without issues", async () => {
   assert.equal(result.exitCode, 0);
   assert.match(result.output, /No issue created\./);
   assert.match(result.output, /Category: casual_or_question/);
+  assert.match(result.output, /Normal response can continue\./);
   assert.equal(await exists(join(rootDir, ".agent", "issues")), false);
 });
 
@@ -85,6 +145,7 @@ test("runCli routes MVP requests through the MVP planning workflow", async () =>
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["request:create", "온보딩 MVP를 기획해줘"]);
     assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Flowness analyzed this as an MVP planning request\./);
     assert.match(result.output, /Workflow: mvp-planning/);
     assert.match(result.output, /Category: mvp_or_product_planning/);
 
@@ -105,7 +166,7 @@ test("runCli decomposes multi issue requests into parent and child issues", asyn
     ]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Category: multi_issue_project/);
-    assert.match(result.output, /Child issues:/);
+    assert.match(result.output, /Children:/);
 
     const issueDirectories = await listIssueDirectories(rootDir);
     assert.equal(issueDirectories.length, 4);
@@ -136,8 +197,45 @@ test("runCli auto-captures freeform requests as issues", async () => {
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["로그인", "기능을", "만들어줘"]);
     assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Captured request as issue ISSUE-001-[A-Z0-9-]+/);
+    assert.match(result.output, /Flowness analyzed this as a development task\./);
+    assert.match(result.output, /Created issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
     assert.match(result.output, /Workflow: feature-development/);
+  });
+});
+
+test("runCli reuses an existing issue for the same request", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-request-reuse-"));
+  const initResult = await runCli(["init", rootDir, "--name", "request-reuse-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const firstResult = await runCli(["request:create", "회원가입 로그인 기능 만들어줘"]);
+    assert.equal(firstResult.exitCode, 0);
+    assert.match(firstResult.output, /Created issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
+
+    const secondResult = await runCli(["request:create", "회원가입 로그인 기능 만들어줘"]);
+    assert.equal(secondResult.exitCode, 0);
+    assert.match(secondResult.output, /Reused existing issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
+
+    const issueDirectories = await listIssueDirectories(rootDir);
+    assert.equal(issueDirectories.length, 1);
+  });
+});
+
+test("runCli reuses legacy TICKET workspaces without creating new ISSUE workspaces", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-legacy-ticket-"));
+  const initResult = await runCli(["init", rootDir, "--name", "legacy-ticket-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  const legacyRequest = "회원가입 로그인 기능 만들어줘";
+  await seedLegacyTicketWorkspace(rootDir, legacyRequest);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli(["request:create", legacyRequest]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Reused existing issue TICKET-001-LEGACY-SIGN-IN and routed it to feature-development\./);
+    assert.doesNotMatch(result.output, /TICKET-[0-9]{3}-LEGACY-SIGN-IN.*Created issue/);
+    assert.equal((await readdir(join(rootDir, ".agent", "issues"))).filter((name) => name.startsWith("ISSUE-")).length, 0);
   });
 });
 
@@ -380,8 +478,8 @@ test("runCli recover command retries a fixed workflow step", async () => {
     await writeFile(
       workflowPath,
       [
-        'import { defineWorkflow } from "@flowness/workflow-engine";',
-        'import { joinPaths, pathExists } from "@flowness/core";',
+        'import { defineWorkflow } from "@flowness-labs/workflow-engine";',
+        'import { joinPaths, pathExists } from "@flowness-labs/core";',
         '',
         'export default defineWorkflow({',
         '  id: "recover-flow",',

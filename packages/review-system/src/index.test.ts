@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createEvidenceRecord } from "@flowness/evidence-system";
-import { createInitialWorkflowState, defineWorkflow } from "@flowness/workflow-engine";
+import { createEvidenceRecord } from "@flowness-labs/evidence-system";
+import { createInitialWorkflowState, defineWorkflow } from "@flowness-labs/workflow-engine";
 import {
   createReviewCoordinatorResult,
   listReviewRoles,

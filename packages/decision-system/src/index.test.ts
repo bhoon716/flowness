@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createEvidenceRecord } from "@flowness/evidence-system";
+import { createEvidenceRecord } from "@flowness-labs/evidence-system";
 import {
   createDecisionDocument,
   formatDecisionFileName,

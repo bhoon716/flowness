@@ -10,7 +10,7 @@ import type {
   WorkflowDefinition,
   WorkflowStepContext,
   WorkflowStepDefinition,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 import {
   createWorkflowDefinitionFromBlueprint,
   createGenericWorkflowDefinition,
@@ -23,7 +23,7 @@ import {
   readTextFile,
   resolveIssuePaths,
   resolveWorkflowScaffoldPaths,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 
 async function importWorkflowModule(filePath: string): Promise<unknown> {
   const extension = extname(filePath).toLowerCase();
@@ -72,7 +72,7 @@ async function importWorkflowModule(filePath: string): Promise<unknown> {
     const compiledPath = join(cacheDir, `${cacheKey}.mjs`);
     await mkdir(cacheDir, { recursive: true });
     const rewrittenSource = source.replace(
-      /from\s+["'](@flowness\/[^"']+)["']/g,
+      /from\s+["'](@flowness-labs\/[^"']+)["']/g,
       (_match, specifier: string) => `from "${import.meta.resolve(specifier)}"`,
     );
     await writeFile(compiledPath, ts.transpileModule(rewrittenSource, {

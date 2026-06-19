@@ -15,6 +15,7 @@ import type {
 import {
   renderGeneratedAgentsMarkdown,
   renderGeneratedConfigArtifacts,
+  renderGeneratedHookArtifacts,
   renderGeneratedRuleArtifacts,
   renderGeneratedScriptArtifacts,
   renderGeneratedScriptsReadmeMarkdown,
@@ -306,7 +307,20 @@ function renderCodexHooksJson(): string {
     {
       version: 1,
       generatedBy: "flowness",
-      hooks: [],
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "node --no-warnings --experimental-strip-types .codex/hooks/user-prompt-submit.ts",
+                commandWindows: "node --no-warnings --experimental-strip-types .codex\\hooks\\user-prompt-submit.ts",
+                statusMessage: "Analyzing request and routing to Flowness",
+              },
+            ],
+          },
+        ],
+      },
     },
     null,
     2,
@@ -427,6 +441,19 @@ export async function initializeProject(
       createdFiles.push(scriptFile.path);
     } else {
       skippedFiles.push(scriptFile.path);
+    }
+  }
+
+  for (const hookFile of renderGeneratedHookArtifacts(analysis)) {
+    const hookWriteResult = await writeTextFile(
+      join(rootDir, hookFile.path),
+      hookFile.content,
+      force,
+    );
+    if (hookWriteResult === "written") {
+      createdFiles.push(hookFile.path);
+    } else {
+      skippedFiles.push(hookFile.path);
     }
   }
 

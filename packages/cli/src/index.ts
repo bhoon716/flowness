@@ -16,6 +16,7 @@ import {
   isLikelyNaturalLanguageRequest,
   slugify,
   type EvidenceRecord,
+  type IssueRecord,
   type IssuePlan,
   type RequestAnalysis,
   toUpperSnake,
@@ -23,33 +24,33 @@ import {
   writeProjectConfig,
   initializeProject,
   issueTypeValues,
-} from "@flowness/core";
+} from "@flowness-labs/core";
 import {
   createIssueWorkspace,
   createIssueId,
   findNextIssueSequence,
   readIssueWorkspace,
   writeIssueWorkspaceState,
-} from "@flowness/issue-system";
+} from "@flowness-labs/issue-system";
 import {
   appendLogEntryToIssue,
   createLogEntry,
-} from "@flowness/log-system";
+} from "@flowness-labs/log-system";
 import {
   listDecisionDocuments,
   writeDecisionDocumentToIssue,
-} from "@flowness/decision-system";
+} from "@flowness-labs/decision-system";
 import {
   createEvidenceRecord,
   hasEvidenceKind,
   summarizeEvidence,
   validateEvidenceRecords,
-} from "@flowness/evidence-system";
+} from "@flowness-labs/evidence-system";
 import {
   createReviewCoordinatorResult,
   runStandardReviews,
   writeReviewReportToIssue,
-} from "@flowness/review-system";
+} from "@flowness-labs/review-system";
 import {
   createGenericWorkflowDefinition,
   getBuiltinWorkflowDefinition,
@@ -59,7 +60,7 @@ import {
   runWorkflowStep,
   validateBuiltinWorkflowDefinitions,
   createWorkflowStepContext,
-} from "@flowness/workflow-engine";
+} from "@flowness-labs/workflow-engine";
 
 export interface CliResult {
   readonly exitCode: 0 | 1;
@@ -1527,10 +1528,129 @@ function formatWorkflowValidationSummary(
   ].join("\n");
 }
 
+function formatRequestCategoryLabel(category: RequestAnalysis["category"]): string {
+  switch (category) {
+    case "casual_or_question":
+      return "a casual message or question";
+    case "single_development_task":
+      return "a development task";
+    case "mvp_or_product_planning":
+      return "an MVP planning request";
+    case "multi_issue_project":
+      return "a multi-issue project";
+    case "review_task":
+      return "a review task";
+    case "bugfix_task":
+      return "a bug fix request";
+    case "refactor_task":
+      return "a refactor task";
+  }
+}
+
+function normalizeComparisonText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeComparisonText(value: string): readonly string[] {
+  const normalized = normalizeComparisonText(value);
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  return normalized.split(" ").filter((token) => token.length > 0);
+}
+
+function calculateRequestSimilarity(left: string, right: string): number {
+  const normalizedLeft = normalizeComparisonText(left);
+  const normalizedRight = normalizeComparisonText(right);
+  if (normalizedLeft.length === 0 || normalizedRight.length === 0) {
+    return 0;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return 1;
+  }
+
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
+    return 0.95;
+  }
+
+  const leftTokens = new Set(tokenizeComparisonText(left));
+  const rightTokens = new Set(tokenizeComparisonText(right));
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  let intersection = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      intersection += 1;
+    }
+  }
+
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return intersection / union;
+}
+
+async function findReusableIssueWorkspace(
+  rootDir: string,
+  analysis: RequestAnalysis,
+  workflowId: string,
+): Promise<Awaited<ReturnType<typeof readIssueWorkspace>> | null> {
+  const issueRoot = join(rootDir, ".agent", "issues");
+  if (!(await pathExists(issueRoot))) {
+    return null;
+  }
+
+  const entries = await readdir(issueRoot, { withFileTypes: true });
+  let bestMatch: {
+    readonly workspace: NonNullable<Awaited<ReturnType<typeof readIssueWorkspace>>>;
+    readonly score: number;
+  } | null = null;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const workspace = await readIssueWorkspace(rootDir, entry.name);
+    if (workspace === null || workspace.issue.workflowId !== workflowId) {
+      continue;
+    }
+
+    if (workspace.issue.state === "closed") {
+      continue;
+    }
+
+    const score = Math.max(
+      calculateRequestSimilarity(analysis.request, workspace.description ?? ""),
+      calculateRequestSimilarity(analysis.request, workspace.issue.title),
+      workspace.issue.goal === undefined ? 0 : calculateRequestSimilarity(analysis.request, workspace.issue.goal),
+    );
+
+    if (score >= 0.75 && (bestMatch === null || score > bestMatch.score)) {
+      bestMatch = {
+        workspace,
+        score,
+      };
+    }
+  }
+
+  return bestMatch?.workspace ?? null;
+}
+
 function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
   const lines = [
+    `Request: ${analysis.request}`,
     `Category: ${analysis.category}`,
     `Reason: ${analysis.reason}`,
+    `Workflow: ${analysis.workflowId ?? "none"}`,
+    `Issue type: ${analysis.issueType ?? "none"}`,
     `Clarification required: ${analysis.needsClarification ? "yes" : "no"}`,
   ];
 
@@ -1577,22 +1697,28 @@ function formatIssueSummary(result: Awaited<ReturnType<typeof createIssueWorkspa
 
 function formatRequestCreateSummary(input: {
   readonly analysis: RequestAnalysis;
-  readonly parent: Awaited<ReturnType<typeof createIssueWorkspace>>;
-  readonly childIssues: readonly Awaited<ReturnType<typeof createIssueWorkspace>>[];
+  readonly issue: IssueRecord;
+  readonly reused: boolean;
 }): string {
   const lines = [
-    `Captured request as issue ${input.parent.issue.id}.`,
-    `Title: ${input.parent.issue.title}`,
-    `Type: ${input.parent.issue.type}`,
-    `Workflow: ${input.parent.issue.workflowId}`,
-    `Request: ${input.analysis.request}`,
-    `Log: ${input.parent.issue.logPath}`,
-    `Category: ${input.analysis.category}`,
-    `Reason: ${input.analysis.reason}`,
+    `Flowness analyzed this as ${formatRequestCategoryLabel(input.analysis.category)}.`,
+    `${input.reused ? "Reused existing issue" : "Created issue"} ${input.issue.id} and routed it to ${input.issue.workflowId}.`,
+    `Workflow: ${input.issue.workflowId}`,
+    `Type: ${input.issue.type}`,
+    `Log: ${input.issue.logPath}`,
+    "Start with 01-intake.md / clarification before implementation.",
   ];
 
-  if (input.childIssues.length > 0) {
-    lines.push(`Child issues: ${input.childIssues.map((issue) => issue.issue.id).join(", ")}`);
+  if (input.issue.parentIssueId !== undefined && input.issue.parentIssueId !== null) {
+    lines.push(`Parent: ${input.issue.parentIssueId}`);
+  }
+
+  if (input.issue.childIssueIds !== undefined && input.issue.childIssueIds.length > 0) {
+    lines.push(`Children: ${input.issue.childIssueIds.join(", ")}`);
+  }
+
+  if (input.analysis.needsClarification) {
+    lines.push("Implementation is blocked until clarification questions are answered.");
   }
 
   return lines.join("\n");
@@ -1604,6 +1730,7 @@ function formatQuestionOrCasualSummary(analysis: RequestAnalysis): string {
     `Category: ${analysis.category}`,
     `Reason: ${analysis.reason}`,
     `Request: ${analysis.request}`,
+    "Normal response can continue.",
   ];
 
   if (analysis.clarificationQuestions.length > 0) {
@@ -2009,77 +2136,118 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
   const config = await readProjectConfig(rootDir);
   const issueType = command.type ?? analysis.issueType ?? "feature";
   const workflowId = command.workflowId ?? analysis.workflowId ?? config.defaultWorkflows[issueType];
-  const effectiveWorkflow = await buildWorkflowDefinition(rootDir, workflowId);
-  const effectivePlan = analysis.issuePlan?.primaryIssue ?? buildFallbackIssuePlan(analysis, issueType, workflowId);
-  const primaryPlan: IssuePlan = {
-    ...effectivePlan,
-    type: issueType,
-    workflowId,
-  };
-  const nextSequence = await findNextIssueSequence(rootDir);
-  const childIssueIds = analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined
-    ? analysis.issuePlan.childIssues.map((child, index) => createIssueId(nextSequence + index + 1, child.title))
-    : [];
-  const decomposition = analysis.issuePlan === undefined
-    ? undefined
-    : {
-        parentIssueId: null,
-        parentIssueTitle: primaryPlan.title,
-        childIssues: analysis.issuePlan.childIssues,
-      };
+  const reusableWorkspace = await findReusableIssueWorkspace(rootDir, analysis, workflowId);
 
-  const parentResult = await createIssueWorkspace({
-    rootDir,
-    title: primaryPlan.title,
-    type: primaryPlan.type,
-    workflow: effectiveWorkflow,
-    force: command.force,
-    sequence: nextSequence,
-    description: command.request,
-    goal: primaryPlan.goal,
-    acceptanceCriteria: primaryPlan.acceptanceCriteria,
-    dependencies: primaryPlan.dependencies,
-    evidenceRequired: primaryPlan.evidenceRequired,
-    childIssueIds,
-    ...(decomposition === undefined ? {} : { decomposition }),
-  });
+  let activeWorkspace: Awaited<ReturnType<typeof createIssueWorkspace>> | NonNullable<Awaited<ReturnType<typeof readIssueWorkspace>>>;
+  let reusedExistingIssue = false;
 
-  const createdChildIssues: Awaited<ReturnType<typeof createIssueWorkspace>>[] = [];
-  if (analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined) {
-    for (let index = 0; index < analysis.issuePlan.childIssues.length; index += 1) {
-      const childPlan = analysis.issuePlan.childIssues[index];
-      if (childPlan === undefined) {
-        continue;
+  if (reusableWorkspace !== null) {
+    activeWorkspace = reusableWorkspace;
+    reusedExistingIssue = true;
+  } else {
+    const effectiveWorkflow = await buildWorkflowDefinition(rootDir, workflowId);
+    const effectivePlan = analysis.issuePlan?.primaryIssue ?? buildFallbackIssuePlan(analysis, issueType, workflowId);
+    const primaryPlan: IssuePlan = {
+      ...effectivePlan,
+      type: issueType,
+      workflowId,
+    };
+    const nextSequence = await findNextIssueSequence(rootDir);
+    const childIssueIds = analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined
+      ? analysis.issuePlan.childIssues.map((child, index) => createIssueId(nextSequence + index + 1, child.title))
+      : [];
+    const decomposition = analysis.issuePlan === undefined
+      ? undefined
+      : {
+          parentIssueId: null,
+          parentIssueTitle: primaryPlan.title,
+          childIssues: analysis.issuePlan.childIssues,
+        };
+
+    const parentResult = await createIssueWorkspace({
+      rootDir,
+      title: primaryPlan.title,
+      type: primaryPlan.type,
+      workflow: effectiveWorkflow,
+      force: command.force,
+      sequence: nextSequence,
+      description: command.request,
+      goal: primaryPlan.goal,
+      acceptanceCriteria: primaryPlan.acceptanceCriteria,
+      dependencies: primaryPlan.dependencies,
+      evidenceRequired: primaryPlan.evidenceRequired,
+      childIssueIds,
+      ...(decomposition === undefined ? {} : { decomposition }),
+    });
+
+    activeWorkspace = parentResult;
+
+    if (analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined) {
+      for (let index = 0; index < analysis.issuePlan.childIssues.length; index += 1) {
+        const childPlan = analysis.issuePlan.childIssues[index];
+        if (childPlan === undefined) {
+          continue;
+        }
+
+        const childSequence = nextSequence + index + 1;
+        const childWorkflow = await buildWorkflowDefinition(rootDir, childPlan.workflowId);
+        await createIssueWorkspace({
+          rootDir,
+          title: childPlan.title,
+          type: childPlan.type,
+          workflow: childWorkflow,
+          force: command.force,
+          sequence: childSequence,
+          description: childPlan.goal,
+          parentIssueId: parentResult.issue.id,
+          goal: childPlan.goal,
+          acceptanceCriteria: childPlan.acceptanceCriteria,
+          dependencies: [parentResult.issue.id, ...childPlan.dependencies],
+          evidenceRequired: childPlan.evidenceRequired,
+          initialState: "blocked",
+        });
       }
-      const childSequence = nextSequence + index + 1;
-      const childWorkflow = await buildWorkflowDefinition(rootDir, childPlan.workflowId);
-      const childResult = await createIssueWorkspace({
-        rootDir,
-        title: childPlan.title,
-        type: childPlan.type,
-        workflow: childWorkflow,
-        force: command.force,
-        sequence: childSequence,
-        description: childPlan.goal,
-        parentIssueId: parentResult.issue.id,
-        goal: childPlan.goal,
-        acceptanceCriteria: childPlan.acceptanceCriteria,
-        dependencies: [parentResult.issue.id, ...childPlan.dependencies],
-        evidenceRequired: childPlan.evidenceRequired,
-        initialState: "blocked",
-      });
-
-      createdChildIssues.push(childResult);
     }
   }
+
+  const issueWorkflow = await buildWorkflowDefinition(rootDir, activeWorkspace.issue.workflowId);
+  const analysisLogEntry = createLogEntry({
+    timestamp: new Date().toISOString(),
+    step: "Request Analysis",
+    actions: [
+      `Request: ${analysis.request}`,
+      `Classified request as ${analysis.category}.`,
+      `Reason: ${analysis.reason}`,
+      `${reusedExistingIssue ? "Reused existing issue" : "Created issue"} ${activeWorkspace.issue.id}.`,
+      `Routed to ${activeWorkspace.issue.workflowId}.`,
+      "Start with 01-intake.md / clarification before implementation.",
+      ...(analysis.needsClarification ? ["Implementation is blocked until clarification questions are answered."] : []),
+      ...(analysis.clarificationQuestions.length === 0 ? [] : [`Clarifying questions: ${analysis.clarificationQuestions.join(" | ")}`]),
+      ...(analysis.issuePlan === undefined ? [] : [`Child issues planned: ${analysis.issuePlan.childIssues.length}`]),
+    ],
+    evidence: [
+      createEvidenceRecord({
+        kind: "command_output",
+        title: "Request analysis",
+        detail: analysis.reason,
+        location: activeWorkspace.issue.logPath,
+      }),
+    ],
+    summary: reusedExistingIssue
+      ? `Reused ${activeWorkspace.issue.id} for the analyzed request.`
+      : `Created ${activeWorkspace.issue.id} for the analyzed request.`,
+    nextStep: issueWorkflow.steps[0]?.name ?? null,
+  });
+
+  await appendLogEntryToIssue(rootDir, activeWorkspace.issue.id, activeWorkspace.issue.title, analysisLogEntry);
 
   return {
     exitCode: 0,
     output: [
       formatRequestCreateSummary({
-      analysis,
-      parent: parentResult,
-      childIssues: createdChildIssues,
+        analysis,
+        issue: activeWorkspace.issue,
+        reused: reusedExistingIssue,
       }),
       "",
       formatRequestAnalysisSummary(analysis),

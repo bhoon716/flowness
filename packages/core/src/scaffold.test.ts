@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -59,6 +60,8 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.ok(result.createdFiles.includes("AGENTS.md"));
   assert.ok(result.createdFiles.includes(".flowness/config.yaml"));
   assert.ok(result.createdFiles.includes(".codex/hooks.json"));
+  assert.ok(result.createdFiles.includes(".codex/hooks/package.json"));
+  assert.ok(result.createdFiles.includes(".codex/hooks/user-prompt-submit.ts"));
   assert.ok(result.createdFiles.includes(".agent/config/project-profile.md"));
   assert.ok(result.createdFiles.includes(".agent/config/commands.md"));
   assert.ok(result.createdFiles.includes(".agent/scripts/README.md"));
@@ -94,6 +97,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.ok(await exists(join(rootDir, ".agent/scripts/flowness-runner.ts")));
   assert.ok(await exists(join(rootDir, ".agent/scripts/workflow-guard.ts")));
   assert.ok(await exists(join(rootDir, ".agent/scripts/README.md")));
+  assert.ok(await exists(join(rootDir, ".codex/hooks/user-prompt-submit.ts")));
   assert.ok(await exists(join(rootDir, ".agent/skills/root-cause-analysis.md")));
   assert.ok(await exists(join(rootDir, ".agent/templates/issue-template.md")));
   assert.ok(await exists(join(rootDir, ".agent/rules/flowness-activation.md")));
@@ -113,6 +117,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(agents, /First analyze the request before creating an issue\./);
   assert.match(agents, /Use the MVP planning workflow for product and MVP requests\./);
   assert.match(agents, /Ask clarification questions when requirements are incomplete\./);
+  assert.match(agents, /Reuse an existing open issue when the request matches the same work item\./);
   assert.match(agents, /Split large work into issues instead of forcing it into one ticket\./);
   assert.match(agents, /flowness request:create/);
   assert.match(agents, /npx tsx \.agent\/scripts\/flowness-runner\.ts/);
@@ -127,6 +132,39 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   const scriptsReadme = await readFile(join(rootDir, ".agent/scripts/README.md"), "utf8");
   assert.match(scriptsReadme, /npx tsx \.agent\/scripts\/flowness-runner\.ts/);
   assert.match(scriptsReadme, /flowness request:create/);
+  assert.match(scriptsReadme, /user-prompt-submit\.ts/);
+
+  const hooksJson = await readFile(join(rootDir, ".codex/hooks.json"), "utf8");
+  assert.match(hooksJson, /UserPromptSubmit/);
+  assert.match(hooksJson, /user-prompt-submit\.ts/);
+  assert.match(hooksJson, /node --no-warnings --experimental-strip-types \.codex\/hooks\/user-prompt-submit\.ts/);
+  assert.match(hooksJson, /Analyzing request and routing to Flowness/);
+  assert.doesNotMatch(hooksJson, /git rev-parse/);
+  assert.doesNotMatch(hooksJson, /TICKET-/);
+
+  const hooksPackageJson = await readFile(join(rootDir, ".codex/hooks/package.json"), "utf8");
+  assert.match(hooksPackageJson, /"type": "module"/);
+
+  const hookScript = await readFile(join(rootDir, ".codex/hooks/user-prompt-submit.ts"), "utf8");
+  assert.match(hookScript, /request:create/);
+  assert.doesNotMatch(hookScript, /TICKET-/);
+
+  const hookOutput = execFileSync(
+    "node",
+    ["--experimental-strip-types", ".codex/hooks/user-prompt-submit.ts"],
+    {
+      cwd: rootDir,
+      input: JSON.stringify({ prompt: "회원가입 로그인 기능 만들어줘" }),
+      encoding: "utf8",
+      env: process.env,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  assert.match(hookOutput, /hookSpecificOutput/);
+  assert.match(hookOutput, /Flowness analyzed this as a development task\./);
+  assert.match(hookOutput, /ISSUE-001-[A-Z0-9-]+/);
+  assert.doesNotMatch(hookOutput, /decision\s*:\s*"block"|decision:block/);
+  assert.doesNotMatch(hookOutput, /TICKET-/);
 
   const projectProfile = await readFile(join(rootDir, ".agent/config/project-profile.md"), "utf8");
   assert.match(projectProfile, /# Project Profile/);

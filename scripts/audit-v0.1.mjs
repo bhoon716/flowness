@@ -78,6 +78,8 @@ async function main() {
     ensureFile(join(sandboxRoot, ".agent/scripts/flowness-runner.ts"), "init scaffold runner script");
     ensureFile(join(sandboxRoot, ".agent/scripts/workflow-guard.ts"), "init scaffold workflow guard");
     ensureFile(join(sandboxRoot, ".agent/scripts/check-md-size.py"), "init scaffold script");
+    ensureFile(join(sandboxRoot, ".codex/hooks/package.json"), "init scaffold hook package");
+    ensureFile(join(sandboxRoot, ".codex/hooks/user-prompt-submit.ts"), "init scaffold prompt hook");
     ensureFile(join(sandboxRoot, ".agent/workflows/feature-development/README.md"), "init scaffold feature workflow");
 
     const validateOutput = runCommand("validate-sandbox", flownessCommand, ["validate"], sandboxRoot);

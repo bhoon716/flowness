@@ -16,34 +16,34 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@flowness/core": [
+      "@flowness-labs/core": [
         "packages/core/src/index.ts"
       ],
-      "@flowness/config-system": [
+      "@flowness-labs/config-system": [
         "packages/config-system/src/index.ts"
       ],
-      "@flowness/decision-system": [
+      "@flowness-labs/decision-system": [
         "packages/decision-system/src/index.ts"
       ],
-      "@flowness/evidence-system": [
+      "@flowness-labs/evidence-system": [
         "packages/evidence-system/src/index.ts"
       ],
-      "@flowness/issue-system": [
+      "@flowness-labs/issue-system": [
         "packages/issue-system/src/index.ts"
       ],
-      "@flowness/log-system": [
+      "@flowness-labs/log-system": [
         "packages/log-system/src/index.ts"
       ],
-      "@flowness/review-system": [
+      "@flowness-labs/review-system": [
         "packages/review-system/src/index.ts"
       ],
-      "@flowness/templates": [
+      "@flowness-labs/templates": [
         "packages/templates/src/index.ts"
       ],
-      "@flowness/workflow-engine": [
+      "@flowness-labs/workflow-engine": [
         "packages/workflow-engine/src/index.ts"
       ],
-      "flowness": [
+      "@flowness-labs/cli": [
         "packages/cli/src/index.ts"
       ]
     }

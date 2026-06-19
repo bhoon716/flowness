@@ -1,4 +1,4 @@
-import type { IssueType, WorkflowDefinition } from "@flowness/core";
+import type { IssueType, WorkflowDefinition } from "@flowness-labs/core";
 
 export interface TemplateDefinition {
   readonly id: string;
