@@ -1,42 +1,120 @@
 # Flowness
 
-Issue-driven AI development operating system.
+<div align="center">
+  <img src="https://img.shields.io/badge/status-active-brightgreen?style=flat-square" alt="Status" />
+  <img src="https://img.shields.io/npm/v/@flowness-labs/cli?color=369eff&labelColor=black&logo=npm&style=flat-square" alt="NPM Version" />
+  <img src="https://img.shields.io/github/license/bhoon716/flowness?style=flat-square&color=white&labelColor=black" alt="License" />
+</div>
 
-이 저장소는 Flowness의 TypeScript-first npm workspace 구현체를 담는다.
-`master-plan.md`가 상위 설계 문서이며, 구현은 그 문서를 따라간다.
+<p align="center">
+  <strong>Issue-driven AI Development Operating System.</strong>
+</p>
 
-## 현재 상태
+---
 
-- monorepo 워크스페이스 골격
-- `flowness init`, `request:create`, `issue:create`, `workflow:create`, `workflow:step`, `workflow:recover` CLI 구현
-- `decision:create`, `review:run`, `skill:create`, `rule:create`, `validate`, `upgrade` CLI 구현
-- 핵심 타입, 초기화 스캐폴딩, 결정/리뷰/증거/워크플로우 런타임 구현
+## What is Flowness?
 
-## 주요 명령
+Most AI coding environments suffer from severe limitations: AI actions are untraceable, workflows are ignored, and decisions vanish without a trace. **Flowness** changes this. Flowness is not just an AI code generation tool; it is an **operating system** that enforces software development workflows and guidelines on AI agents.
+
+Every request becomes a formal **Issue**, and every step produces immutable **Evidence** under an append-only log model.
+
+---
+
+## Core Philosophy
+
+- 🎯 **Every Request is an Issue**: Requests automatically transition into structured issues.
+- 📜 **Append-Only Logs**: All agent actions are recorded chronologically and can never be mutated.
+- ⚙️ **Mandatory Workflows**: Agents operate strictly within user-defined/system-enforced execution paths.
+- 🔍 **Evidence Over Claims**: "Test succeeded" is not enough. Agents must provide verification payloads.
+- 🧠 **Preserved Decisions**: Design decisions (e.g., architectural choices) are archived in structured RFC-style templates.
+
+---
+
+## Project Structure
+
+Flowness is a Monorepo workspace divided into modular packages:
+
+- [`@flowness-labs/cli`](file:///Users/bhoon/Project/flowness/packages/cli): CLI entry points and orchestration.
+- [`@flowness-labs/core`](file:///Users/bhoon/Project/flowness/packages/core): Common types, configuration parser, and initialization scaffolding.
+- [`@flowness-labs/workflow-engine`](file:///Users/bhoon/Project/flowness/packages/workflow-engine): Code-based, deterministic workflow orchestrator.
+- [`@flowness-labs/issue-system`](file:///Users/bhoon/Project/flowness/packages/issue-system): Issue selection and states.
+- [`@flowness-labs/log-system`](file:///Users/bhoon/Project/flowness/packages/log-system): Append-only logger.
+- [`@flowness-labs/decision-system`](file:///Users/bhoon/Project/flowness/packages/decision-system): Decisison artifact builder.
+- [`@flowness-labs/evidence-system`](file:///Users/bhoon/Project/flowness/packages/evidence-system): Executed tool validation parser.
+- [`@flowness-labs/review-system`](file:///Users/bhoon/Project/flowness/packages/review-system): Multi-agent reviewer aggregator.
+- [`@flowness-labs/config-system`](file:///Users/bhoon/Project/flowness/packages/config-system): Project-wide settings and overrides.
+- [`@flowness-labs/templates`](file:///Users/bhoon/Project/flowness/packages/templates): Scaffolding templates for local projects.
+
+---
+
+## Installation & Getting Started
+
+Install the CLI globally from npm:
 
 ```bash
-npm install
-npm run build
-npm test
-npm run link:cli   # one-time: makes `flowness` available on PATH
-flowness init ./some-project
-flowness request:create "회원가입 로그인 기능 만들어줘"
-flowness issue:create --title "Sign in" --type feature
-flowness workflow:step --issue ISSUE-001-SIGN-IN --approve
-flowness review:run --issue ISSUE-001-SIGN-IN
+npm install -g @flowness-labs/cli
 ```
 
-`flowness`를 `npx` 없이 바로 쓰려면 `npm run link:cli`를 한 번 실행하면 됩니다. 이미 다른 `flowness` 링크가 있으면 이 저장소 버전으로 덮어씁니다.
+Or initialize a new Flowness-governed project using `npx`:
 
-## 레이아웃
+```bash
+npx @flowness-labs/cli init ./my-new-project
+```
 
-- `packages/cli`: CLI 진입점
-- `packages/core`: 공통 타입, 설정, 스캐폴딩
-- `packages/workflow-engine`: 코드 기반 워크플로우 엔진
-- `packages/issue-system`: 이슈 선택과 이슈 모델
-- `packages/log-system`: append-only 로그 계약
-- `packages/decision-system`: 결정 문서 계약
-- `packages/evidence-system`: 증거 모델
-- `packages/review-system`: 다중 리뷰어 집계
-- `packages/config-system`: 프로젝트 설정 시스템
-- `packages/templates`: 템플릿 레지스트리
+### Development Setup
+
+To build and test the monorepo locally:
+
+```bash
+# Install dependencies
+npm install
+
+# Build all workspace packages
+npm run build
+
+# Run unit and integration tests
+npm run test
+
+# Symlink CLI for local CLI usage
+npm run link:cli
+```
+
+---
+
+## Key CLI Commands
+
+Once initialized, use the following commands to drive agent tasks:
+
+```bash
+# Request a feature or change
+flowness request:create "Implement user authentication"
+
+# Manually register an issue
+flowness issue:create --title "Integrate Redis caching" --type feature
+
+# Run a step on a workflow
+flowness workflow:step --issue ISSUE-001-SIGNIN --approve
+
+# Execute a multi-agent code review
+flowness review:run --issue ISSUE-001-SIGNIN
+```
+
+---
+
+## Architecture Layout
+
+```
+.agent/                  ← Local project's AI OS directory
+├── config/              ← Configuration rules
+├── issues/              ← Working issues & design decisions
+├── logs/                ← Append-only logs
+├── workflows/           ← Executable workflows
+├── rules/               ← System rules
+└── templates/           ← Document templates
+```
+
+---
+
+## License
+
+This project is licensed under the MIT License.
