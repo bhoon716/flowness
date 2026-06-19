@@ -117,12 +117,17 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(agents, /First analyze the request before creating an issue\./);
   assert.match(agents, /Use the MVP planning workflow for product and MVP requests\./);
   assert.match(agents, /Ask clarification questions when requirements are incomplete\./);
+  assert.match(agents, /multiple options, explicit pros and cons, a recommended default/);
   assert.match(agents, /Reuse an existing open issue when the request matches the same work item\./);
   assert.match(agents, /Split large work into issues instead of forcing it into one ticket\./);
   assert.match(agents, /flowness request:create/);
   assert.match(agents, /npx tsx \.agent\/scripts\/flowness-runner\.ts/);
   assert.match(agents, /\.agent\/scripts\/workflow-guard\.ts/);
   assert.match(agents, /\.agent\/rules\/\*/);
+  assert.match(agents, /Never advance workflow state before appending the matching log entry\./);
+  assert.match(agents, /Never pass a human gate without explicit approval evidence in the log\./);
+  assert.match(agents, /Follow the `Next` link in each workflow step file before moving on\./);
+  assert.match(agents, /Stop and recover first if the workflow state and log do not match\./);
   assert.match(agents, /\.agent\/config\/project-profile\.md/);
   assert.match(agents, /Build command: `npm run build`/);
   assert.match(agents, /Test command: `npm test`/);
@@ -179,6 +184,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   const workflowReadme = await readFile(join(rootDir, ".agent/workflows/feature-development/README.md"), "utf8");
   assert.match(workflowReadme, /Feature Development/);
   assert.match(workflowReadme, /Clarifying Questions/);
+  assert.match(workflowReadme, /navigation links, gate details, and evidence requirements/);
 
   const mvpWorkflowReadme = await readFile(join(rootDir, ".agent/workflows/mvp-planning/README.md"), "utf8");
   assert.match(mvpWorkflowReadme, /MVP Planning/);
@@ -195,6 +201,46 @@ test("initializeProject creates the Flowness project skeleton", async () => {
     "07-close.md",
     "README.md",
   ]);
+
+  for (const workflowId of [
+    "feature-development",
+    "code-review",
+    "bug-fix",
+    "refactoring",
+    "mvp-planning",
+  ]) {
+    const workflowDir = join(rootDir, ".agent/workflows", workflowId);
+    const stepFiles = (await readdir(workflowDir))
+      .filter((fileName) => fileName.endsWith(".md") && fileName !== "README.md")
+      .sort();
+
+    for (const fileName of stepFiles) {
+      const content = await readFile(join(workflowDir, fileName), "utf8");
+      assert.match(content, /## Step Metadata/);
+      assert.match(content, /Current Step:/);
+      assert.match(content, /## Step Navigation/);
+      assert.match(content, /Previous: (\[[^\]]+\]\(\.\/[^\)]+\.md\)|none)/);
+      assert.match(content, /Next: (\[[^\]]+\]\(\.\/[^\)]+\.md\)|none)/);
+      assert.match(content, /## Purpose/);
+      assert.match(content, /## Required Inputs/);
+      assert.match(content, /## Actions/);
+      assert.match(content, /## Evidence Required/);
+      assert.match(content, /## Exit Criteria/);
+      assert.match(content, /## Human Gate/);
+    }
+  }
+
+  const clarifyingQuestionsStep = await readFile(join(rootDir, ".agent/workflows/feature-development/02-clarifying-questions.md"), "utf8");
+  assert.match(clarifyingQuestionsStep, /multiple options/);
+  assert.match(clarifyingQuestionsStep, /pros and cons/i);
+
+  const scopeDefinitionStep = await readFile(join(rootDir, ".agent/workflows/feature-development/04-scope-definition.md"), "utf8");
+  assert.match(scopeDefinitionStep, /Do not advance to Implementation until the approval is logged\./);
+
+  const evidenceReviewStep = await readFile(join(rootDir, ".agent/workflows/feature-development/06-evidence-review.md"), "utf8");
+  assert.match(evidenceReviewStep, /files changed/);
+  assert.match(evidenceReviewStep, /tests, build, and lint/);
+  assert.match(evidenceReviewStep, /unresolved risks/);
 
   const mvpWorkflowFiles = await readdir(join(rootDir, ".agent/workflows/mvp-planning"));
   assert.deepEqual([...mvpWorkflowFiles].sort(), [

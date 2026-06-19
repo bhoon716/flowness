@@ -188,6 +188,7 @@ export async function runWorkflowStep(
       step,
       result,
       timestamp: input.timestamp,
+      approved: input.approved === true,
     });
   } catch (error) {
     const rootCause = normalizeRootCause(error);
@@ -235,11 +236,19 @@ function finalizeWorkflowStepRun(input: {
   readonly step: WorkflowStepDefinition;
   readonly result: WorkflowStepResult;
   readonly timestamp: string;
+  readonly approved: boolean;
 }): Promise<WorkflowStepRunOutcome> {
   return (async () => {
     await assertStepEvidence(input.step.name, input.result.evidence, true);
     const nextStep = input.result.nextStep ?? getNextWorkflowStep(input.workflow, input.step.name);
     const evidence = mergeEvidence(input.state.evidence, input.result.evidence);
+    const approvalEvidence = input.step.humanGate === "always" && input.approved
+      ? [{
+          kind: "command_output",
+          title: `Human approval for ${input.step.name}`,
+          detail: `Explicit approval was recorded before "${input.step.name}" completed.`,
+        } satisfies EvidenceRecord]
+      : [];
     const state: WorkflowState = {
       workflowId: input.state.workflowId,
       currentStep: nextStep ?? "",
@@ -255,10 +264,16 @@ function finalizeWorkflowStepRun(input: {
       timestamp: input.timestamp,
       stepName: input.step.name,
       actions: [
+        ...(input.step.humanGate === "always" && input.approved
+          ? [`Human gate "${input.step.humanGate}" approved explicitly.`]
+          : []),
         `Executed step "${input.step.name}".`,
         `Transitioned to "${nextStep ?? "complete"}".`,
       ],
-      evidence: input.result.evidence,
+      evidence: [
+        ...approvalEvidence,
+        ...input.result.evidence,
+      ],
       summary: input.result.summary,
       nextStep,
     });

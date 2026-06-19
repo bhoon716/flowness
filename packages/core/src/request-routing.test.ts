@@ -31,6 +31,9 @@ test("request analysis routes a feature request to one workflow-backed issue", (
   assert.equal(analysis.issuePlan?.childIssues.length, 0);
   assert.equal(createIssueTitleFromRequest("로그인 기능을 만들어줘"), analysis.suggestedTitle);
   assert.ok(analysis.clarificationQuestions.length > 0);
+  assert.match(analysis.clarificationQuestions[0]?.question ?? "", /outcome should we optimize/i);
+  assert.ok(analysis.clarificationQuestions.every((question) => question.options.length >= 2));
+  assert.ok(analysis.clarificationQuestions.every((question) => question.options.every((option) => option.pros.length > 0 && option.cons.length > 0)));
 });
 
 test("request analysis routes MVP planning requests to the MVP workflow", () => {
@@ -56,6 +59,7 @@ test("request analysis splits large requests into a planning issue and child iss
   assert.equal(analysis.issuePlan?.childIssues.length, 3);
   assert.ok(analysis.issuePlan?.childIssues.every((child) => child.workflowId.length > 0));
   assert.ok(analysis.clarificationQuestions.length > 0);
+  assert.ok(analysis.clarificationQuestions.some((question) => question.whatINeedFromYou.length > 0));
 });
 
 test("request analysis routes review, bugfix, and refactor requests to matching workflows", () => {

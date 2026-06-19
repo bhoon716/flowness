@@ -82,6 +82,8 @@ test("runWorkflowStep handles human gates, transitions, and failure recovery", a
   assert.equal(completed.nextStep, "Implement");
   assert.equal(completed.state.currentStep, "Implement");
   assert.equal(completed.state.blocked, false);
+  assert.match(completed.logEntry.actions[0] ?? "", /Human gate "always" approved explicitly\./);
+  assert.equal(completed.logEntry.evidence[0]?.title, "Human approval for Clarify");
 
   const implementContext = createWorkflowStepContext({
     issueId: "ISSUE-001-DEMO",

@@ -380,6 +380,7 @@ async function collectGitStatus(rootDir: string): Promise<string> {
 function renderWorkflowStepMarkdown(
   workflow: WorkflowSpec,
   step: WorkflowStepSpec,
+  previousStep: WorkflowStepSpec | null,
   nextStep: WorkflowStepSpec | null,
   analysis: ProjectAnalysis,
 ): string {
@@ -387,9 +388,13 @@ function renderWorkflowStepMarkdown(
   const testCommand = analysis.testCommand ?? "TODO: detect test command";
   const lintCommand = analysis.lintCommand ?? "TODO: detect lint command";
   const nextStepTitle = nextStep === null ? "none" : nextStep.title;
+  const currentFileLink = `[${step.fileName}](./${step.fileName})`;
+  const previousStepLink = previousStep === null ? "none" : `[${previousStep.fileName}](./${previousStep.fileName})`;
+  const nextStepLink = nextStep === null ? "none" : `[${nextStep.fileName}](./${nextStep.fileName})`;
 
   const requiredInputs = [
     "The current request or issue summary.",
+    "The latest issue log entry and workflow state for this issue.",
     "The project profile from `.agent/config/project-profile.md`.",
     "The commands summary from `.agent/config/commands.md`.",
     analysis.sourceDirectories.length > 0
@@ -399,8 +404,10 @@ function renderWorkflowStepMarkdown(
 
   const actions = [
     `Keep the ${workflow.title.toLowerCase()} flow focused on ${workflow.focus}.`,
+    "Read the current step and follow the `Next` link before moving on.",
+    "Append evidence to the issue log before writing the next workflow state.",
+    "Stop and recover first if the latest log entry and workflow state disagree.",
     `Use \`${buildCommand}\`, \`${testCommand}\`, and \`${lintCommand}\` when they are relevant to the step.`,
-    "Append evidence to the issue log instead of rewriting prior work.",
   ];
 
   const evidenceRequired = [
@@ -418,6 +425,75 @@ function renderWorkflowStepMarkdown(
     `The next step is \`${nextStepTitle}\`.`,
   ];
 
+  requiredInputs.unshift(`The current workflow step file (${currentFileLink}).`);
+  actions.push("Do not skip workflow steps or advance state without the matching log entry.");
+
+  if (step.humanGate === "always") {
+    actions.push("Do not continue until explicit approval is appended to the issue log.");
+    exitCriteria.push("Explicit approval is logged before the next step starts.");
+  }
+
+  if (step.title === "Clarifying Questions") {
+    requiredInputs.push(
+      "The current list of missing questions.",
+      "Any assumptions already captured in the analysis step.",
+    );
+    actions.push("Write the missing questions that block the plan and note any assumptions explicitly.");
+    actions.push("Ask questions with multiple options, pros and cons, a recommended default, and a clear request for the user's choice.");
+    evidenceRequired.push("The rich clarification question list and the captured assumptions.");
+    exitCriteria.push("The missing requirements are captured in the issue log.");
+  }
+
+  if (step.title === "Scope Definition") {
+    requiredInputs.push(
+      "The users, goals, constraints, risks, scope boundary, non-goals, and acceptance criteria.",
+    );
+    actions.push("Draw the line around the scope and call out what is deliberately out of scope.");
+    actions.push("Do not advance to Implementation until the approval is logged.");
+    evidenceRequired.push("The scoped boundary, the non-goals, and the approval log entry.");
+    exitCriteria.push("The scope is approved in the log and the next step link is safe to follow.");
+  }
+
+  if (step.title === "Implementation") {
+    requiredInputs.push(
+      "The approved scope and the latest Evidence Review status.",
+    );
+    actions.push("Record the implementation work, but do not close until Evidence Review is logged.");
+    evidenceRequired.push("The implementation diff and the evidence-review gate record.");
+    exitCriteria.push("Evidence Review is logged before close is allowed.");
+  }
+
+  if (step.title === "Evidence Review") {
+    requiredInputs.push(
+      "The files changed.",
+      "The tests, build, and lint commands that were run.",
+      "The command outputs or concise summaries.",
+      "Any docs updated because the behavior changed.",
+      "Any unresolved risks or follow-up items.",
+    );
+    actions.push("Check the changed files, the commands that ran, the documentation updates, and any remaining risks.");
+    actions.push("Verify that the implementation can close only after this review is recorded.");
+    evidenceRequired.push(
+      "A changed-files summary.",
+      "Command outputs or summaries for tests, build, and lint.",
+      "Documentation update notes when docs changed.",
+      "A note about unresolved risks.",
+    );
+    exitCriteria.push("The implementation can close only after this review is recorded.");
+  }
+
+  if (step.title === "Close") {
+    requiredInputs.push(
+      "The Evidence Review log entry.",
+      "The final review result.",
+      "Any unresolved risks that must be carried forward.",
+    );
+    actions.push("Verify the latest log entry before closing.");
+    actions.push("Do not close if Evidence Review is missing.");
+    evidenceRequired.push("The Evidence Review log entry and the final review summary.");
+    exitCriteria.push("The issue can close without any missing review gate.");
+  }
+
   if (workflow.id === "mvp-planning") {
     if (step.title === "Requirement Analysis") {
       requiredInputs.push(
@@ -426,21 +502,6 @@ function renderWorkflowStepMarkdown(
         "Known risks, constraints, and deadlines.",
       );
       actions.push("Capture assumptions, missing information, and anything that must be clarified before the plan is written.");
-    }
-
-    if (step.title === "Clarifying Questions") {
-      requiredInputs.push(
-        "The current list of missing questions.",
-        "Any assumptions already captured in the analysis step.",
-      );
-      actions.push("Write the missing questions that block the plan and note any assumptions explicitly.");
-    }
-
-    if (step.title === "Scope Definition") {
-      requiredInputs.push(
-        "The users, goals, constraints, risks, MVP scope, non-goals, and acceptance criteria.",
-      );
-      actions.push("Draw the line around the MVP and call out what is deliberately out of scope.");
     }
 
     if (step.title === "MVP Plan") {
@@ -472,10 +533,6 @@ function renderWorkflowStepMarkdown(
     }
   }
 
-  if (step.title === "Clarifying Questions") {
-    actions.push("Log assumptions when the request is incomplete and stop short of implementation until the missing information is captured.");
-  }
-
   return [
     "---",
     `workflow: ${workflow.id}`,
@@ -485,6 +542,14 @@ function renderWorkflowStepMarkdown(
     "---",
     "",
     `# ${step.title}`,
+    "",
+    "## Step Metadata",
+    `- Current Step: ${step.title}`,
+    `- Step File: ${currentFileLink}`,
+    "",
+    "## Step Navigation",
+    `- Previous: ${previousStepLink}`,
+    `- Next: ${nextStepLink}`,
     "",
     "## Purpose",
     step.purpose,
@@ -509,9 +574,6 @@ function renderWorkflowStepMarkdown(
     "",
     "## Exit Criteria",
     ...exitCriteria.map((item) => `- ${item}`),
-    "",
-    "## Next Step",
-    `- ${nextStepTitle}`,
     "",
   ].join("\n");
 }
@@ -538,6 +600,7 @@ function renderWorkflowReadme(workflow: WorkflowSpec, analysis: ProjectAnalysis)
     `- Focus: ${workflow.focus}.`,
     "- Each step file is ordered and should be read from top to bottom.",
     "- Each step file includes frontmatter that the workflow loader can parse.",
+    "- Each step file includes current-step metadata, navigation links, gate details, and evidence requirements.",
     "",
   ].join("\n");
 }
@@ -648,6 +711,7 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     "Do not create issues for greetings, thanks, casual conversation, or simple Q&A.",
     "Use the MVP planning workflow for product and MVP requests.",
     "Ask clarification questions when requirements are incomplete.",
+    "Ask clarification questions with multiple options, explicit pros and cons, a recommended default, and a clear request for the user's choice.",
     "Reuse an existing open issue when the request matches the same work item.",
     "Split large work into issues instead of forcing it into one ticket.",
     "",
@@ -657,7 +721,14 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     "- Reuse an existing open issue when the request matches the same work item.",
     '- If you need the local TypeScript helper, run `npx tsx .agent/scripts/flowness-runner.ts "<request>"`.',
     "- If the request is casual or question-only, answer directly and do not open an issue.",
-    "- Follow `.agent/rules/request-analysis.md`, `.agent/rules/clarification-policy.md`, `.agent/rules/issue-decomposition.md`, `.agent/rules/fail-closed-workflow.md`, and the workflow step files.",
+    "- Follow `.agent/rules/request-analysis.md`, `.agent/rules/clarification-policy.md`, `.agent/rules/issue-decomposition.md`, `.agent/rules/fail-closed-workflow.md`, `.agent/rules/workflow-step-contract.md`, `.agent/rules/evidence-policy.md`, and the workflow step files.",
+    "",
+    "## Workflow Discipline",
+    "- Never skip workflow steps.",
+    "- Never advance workflow state before appending the matching log entry.",
+    "- Never pass a human gate without explicit approval evidence in the log.",
+    "- Follow the `Next` link in each workflow step file before moving on.",
+    "- Stop and recover first if the workflow state and log do not match.",
     "",
     "## Project Context",
     `- Project: ${analysis.projectName}`,
@@ -800,9 +871,10 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "# Clarification Policy",
       "",
       "- Ask clarification questions early in every workflow.",
+      "- When requirements are incomplete, ask detailed questions with multiple options, explicit pros and cons, a recommended default, and a clear request for the user's choice.",
       "- Log assumptions whenever requirements are incomplete.",
       "- Stop before implementation if a required answer is still missing.",
-      "- Make missing users, goals, constraints, risks, and acceptance criteria explicit.",
+      "- Make missing users, goals, constraints, risks, acceptance criteria, data model, security, testing, and non-goals explicit.",
       "",
     ].join("\n")),
     artifact(".agent/rules/issue-decomposition.md", [
@@ -818,8 +890,10 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "# Fail Closed Workflow",
       "",
       "- Do not skip workflow steps.",
-      "- Do not close an issue without evidence.",
-      "- Do not continue after a failed review unless recovery is logged.",
+      "- Do not advance workflow state before the matching log entry is appended.",
+      "- Do not pass a human gate without explicit approval evidence in the log.",
+      "- Do not close an issue without evidence review and recorded evidence.",
+      "- If workflow state and log disagree, stop and recover first.",
       "- If a gate fails, record the failure and stop at the blocked step.",
       "",
     ].join("\n")),
@@ -858,7 +932,8 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
         ? "- Lint evidence is not yet detected; add a lint command when the project has one."
         : `- Lint evidence should use \`${analysis.lintCommand}\` when available.`,
       "- Evidence must point to real project artifacts, not only Flowness metadata.",
-      "- Workflow state and issue logs must be updated before closing.",
+      "- Workflow state and issue logs must stay aligned before closing.",
+      "- Evidence Review must be logged before Close is allowed.",
       "- Do not claim completion while the final review or evidence gate is still blocked.",
       "",
     ].join("\n")),
@@ -877,6 +952,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       analysis.lintCommand === null
         ? "- Add lint evidence once a lint command exists."
         : `- Use \`${analysis.lintCommand}\` for lint evidence when it exists.`,
+      "- Evidence Review should check changed files, tests, build, lint, command outputs or summaries, docs updated if needed, and unresolved risks.",
       "- Keep evidence append-only in the issue log.",
       "",
     ].join("\n")),
@@ -885,8 +961,11 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "",
       "- Run exactly one valid step at a time.",
       "- Do not skip ahead in the workflow order.",
+      "- Read the current step file and follow the `Next` link before moving on.",
       "- Append logs instead of rewriting them.",
+      "- Never advance workflow state before appending the matching log entry.",
       "- Stop when the current step needs evidence or review that is still missing.",
+      "- If workflow state and log disagree, stop and recover before continuing.",
       "- If a review fails, log the recovery path before trying again.",
       "",
     ].join("\n")),
@@ -1100,11 +1179,12 @@ export function renderGeneratedWorkflowArtifacts(analysis: ProjectAnalysis): rea
       if (step === undefined) {
         continue;
       }
+      const previousStep = workflow.steps[index - 1] ?? null;
       const nextStep = workflow.steps[index + 1] ?? null;
       artifacts.push(
         artifact(
           `.agent/workflows/${workflow.id}/${step.fileName}`,
-          renderWorkflowStepMarkdown(workflow, step, nextStep, analysis),
+          renderWorkflowStepMarkdown(workflow, step, previousStep, nextStep, analysis),
         ),
       );
     }

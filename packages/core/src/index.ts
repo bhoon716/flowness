@@ -36,6 +36,8 @@ export {
   shouldCreateIssueForRequest,
 } from "./request-routing.js";
 export type {
+  ClarificationQuestion,
+  ClarificationQuestionOption,
   RequestCategory,
   RequestAnalysis,
   RequestIssuePlanBundle,

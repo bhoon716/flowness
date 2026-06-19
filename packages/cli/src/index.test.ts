@@ -35,9 +35,11 @@ async function listIssueDirectories(rootDir: string): Promise<readonly string[]>
 async function seedLegacyTicketWorkspace(rootDir: string, requestText: string): Promise<string> {
   const legacyIssueId = "TICKET-001-LEGACY-SIGN-IN";
   const issueDir = join(rootDir, ".agent", "issues", legacyIssueId);
+  const logDir = join(rootDir, ".agent", "logs");
   const now = new Date().toISOString();
 
   await mkdir(issueDir, { recursive: true });
+  await mkdir(logDir, { recursive: true });
   await writeFile(join(issueDir, "issue.json"), JSON.stringify({
     issue: {
       id: legacyIssueId,
@@ -72,6 +74,23 @@ async function seedLegacyTicketWorkspace(rootDir: string, requestText: string): 
     updatedAt: now,
     evidence: [],
   }, null, 2), "utf8");
+  await writeFile(join(logDir, `${legacyIssueId}.md`), [
+    `# ${legacyIssueId} Log`,
+    "",
+    `- Issue: Legacy Sign In`,
+    `- Log File: ${legacyIssueId}.md`,
+    "",
+    `## ${now}`,
+    "",
+    "- Step: Issue Created",
+    "- Actions:",
+    "  - Seeded a legacy ticket workspace for reuse.",
+    "- Evidence:",
+    "  - None",
+    "- Summary: Legacy ticket workspace seeded.",
+    "- Next Step: Intake",
+    "",
+  ].join("\n"), "utf8");
 
   return legacyIssueId;
 }
@@ -108,6 +127,12 @@ test("runCli captures a request as an issue", async () => {
     assert.match(result.output, /Workflow: feature-development/);
     assert.match(result.output, /Start with 01-intake\.md \/ clarification before implementation\./);
     assert.match(result.output, /Implementation is blocked until clarification questions are answered\./);
+    assert.match(result.output, /Clarifying questions:/);
+    assert.match(result.output, /Option A:/);
+    assert.match(result.output, /Pros:/);
+    assert.match(result.output, /Cons:/);
+    assert.match(result.output, /Recommended default:/);
+    assert.match(result.output, /What I need from you:/);
     assert.doesNotMatch(result.output, /TICKET-/);
 
     const issueDirectories = await listIssueDirectories(rootDir);
@@ -346,6 +371,163 @@ test("runCli advances workflows, records decisions, and runs reviews", async () 
     const reviewMarkdown = await readFile(join(rootDir, ".agent/issues", issueName, "reviews", reviewFile), "utf8");
     assert.match(reviewMarkdown, /Testing Reviewer/);
     assert.match(reviewMarkdown, /Status: fail/);
+  });
+});
+
+test("runCli blocks workflow progression when workflow state advances without a matching log entry", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-state-log-"));
+  const initResult = await runCli(["init", rootDir, "--name", "state-log-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const issueResult = await runCli(["issue:create", "--title", "State log check", "--type", "feature"]);
+    assert.equal(issueResult.exitCode, 0);
+
+    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
+    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
+    if (!issueName) {
+      throw new Error("Expected issue workspace to be created.");
+    }
+
+    const firstStep = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
+    assert.equal(firstStep.exitCode, 0);
+
+    const workflowStatePath = join(rootDir, ".agent/issues", issueName, "workflow-state.json");
+    const workflowState = JSON.parse(await readFile(workflowStatePath, "utf8")) as { currentStep: string; updatedAt: string };
+    workflowState.currentStep = "Implementation";
+    workflowState.updatedAt = "2026-06-19T00:10:00.000Z";
+    await writeFile(workflowStatePath, `${JSON.stringify(workflowState, null, 2)}\n`, "utf8");
+
+    const blocked = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
+    assert.equal(blocked.exitCode, 1);
+    assert.match(blocked.output, /State\/log mismatch detected/);
+    assert.match(blocked.output, /Recovery:/);
+  });
+});
+
+test("runCli detects log and state mismatches when the log advances without matching state", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-log-state-"));
+  const initResult = await runCli(["init", rootDir, "--name", "log-state-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const issueResult = await runCli(["issue:create", "--title", "Log state check", "--type", "feature"]);
+    assert.equal(issueResult.exitCode, 0);
+
+    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
+    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
+    if (!issueName) {
+      throw new Error("Expected issue workspace to be created.");
+    }
+
+    const firstStep = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
+    assert.equal(firstStep.exitCode, 0);
+
+    const logPath = join(rootDir, ".agent/logs", `${issueName}.md`);
+    const existingLog = await readFile(logPath, "utf8");
+    await writeFile(logPath, [
+      existingLog.trimEnd(),
+      "",
+      "## 2026-06-19T00:11:00.000Z",
+      "",
+      "- Step: Manual Log Advance",
+      "- Actions:",
+      "  - Simulated log advance.",
+      "- Evidence:",
+      "  - None",
+      "- Summary: Simulated log advance.",
+      "- Next Step: Implementation",
+      "",
+    ].join("\n"), "utf8");
+
+    const blocked = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
+    assert.equal(blocked.exitCode, 1);
+    assert.match(blocked.output, /State\/log mismatch detected/);
+    assert.match(blocked.output, /Recovery:/);
+  });
+});
+
+test("runCli blocks close until Evidence Review is logged", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-evidence-review-"));
+  const initResult = await runCli(["init", rootDir, "--name", "evidence-review-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const createWorkflow = await runCli(["workflow:create", "close-check", "--name", "Close Check"]);
+    assert.equal(createWorkflow.exitCode, 0);
+
+    const workflowPath = join(rootDir, ".agent/workflows/close-check/workflow.ts");
+    await writeFile(workflowPath, [
+      'import { defineWorkflow } from "@flowness-labs/workflow-engine";',
+      'import { joinPaths, pathExists } from "@flowness-labs/core";',
+      '',
+      'export default defineWorkflow({',
+      '  id: "close-check",',
+      '  name: "Close Check",',
+      '  steps: [',
+      '    {',
+      '      name: "Implementation",',
+      '      preconditions: [],',
+      '      successConditions: ["Implementation proof exists."],',
+      '      next: "Close",',
+      '      execute: async (context) => {',
+      '        const proofPath = joinPaths(context.rootDir, "implementation-proof.md");',
+      '        if (!(await pathExists(proofPath))) {',
+      '          throw new Error("Missing implementation proof");',
+      '        }',
+      '        return {',
+      '          summary: "Implementation proof found.",',
+      '          evidence: [',
+      '            { kind: "file", title: "implementation-proof.md", location: proofPath, detail: "Implementation proof." },',
+      '          ],',
+      '          nextStep: "Close",',
+      '        };',
+      '      },',
+      '    },',
+      '    {',
+      '      name: "Close",',
+      '      preconditions: [\'"Implementation" has completed.\'],',
+      '      successConditions: ["Close proof exists."],',
+      '      next: null,',
+      '      execute: async (context) => {',
+      '        const proofPath = joinPaths(context.rootDir, "close-proof.md");',
+      '        if (!(await pathExists(proofPath))) {',
+      '          throw new Error("Missing close proof");',
+      '        }',
+      '        return {',
+      '          summary: "Close proof found.",',
+      '          evidence: [',
+      '            { kind: "file", title: "close-proof.md", location: proofPath, detail: "Close proof." },',
+      '          ],',
+      '          nextStep: null,',
+      '        };',
+      '      },',
+      '    },',
+      '  ],',
+      '});',
+      '',
+    ].join("\n"), "utf8");
+
+    await writeFile(join(rootDir, "implementation-proof.md"), "# Implementation proof\n", "utf8");
+    await writeFile(join(rootDir, "close-proof.md"), "# Close proof\n", "utf8");
+
+    const issueResult = await runCli(["issue:create", "--title", "Close proof check", "--type", "feature", "--workflow", "close-check"]);
+    assert.equal(issueResult.exitCode, 0);
+
+    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
+    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
+    if (!issueName) {
+      throw new Error("Expected issue workspace to be created.");
+    }
+
+    const implementationResult = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
+    assert.equal(implementationResult.exitCode, 0);
+    assert.match(implementationResult.output, /Next step: Close/);
+
+    const closeResult = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
+    assert.equal(closeResult.exitCode, 1);
+    assert.match(closeResult.output, /Evidence Review is required before Close/);
+    assert.match(closeResult.output, /Recovery:/);
   });
 });
 

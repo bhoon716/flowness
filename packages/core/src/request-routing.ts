@@ -15,6 +15,20 @@ export interface RequestIssuePlanBundle {
   readonly childIssues: readonly IssuePlan[];
 }
 
+export interface ClarificationQuestionOption {
+  readonly label: string;
+  readonly summary: string;
+  readonly pros: readonly string[];
+  readonly cons: readonly string[];
+}
+
+export interface ClarificationQuestion {
+  readonly question: string;
+  readonly options: readonly ClarificationQuestionOption[];
+  readonly recommendedDefault: string;
+  readonly whatINeedFromYou: string;
+}
+
 export interface RequestAnalysis {
   readonly request: string;
   readonly normalizedRequest: string;
@@ -25,7 +39,7 @@ export interface RequestAnalysis {
   readonly suggestedTitle: string;
   readonly reason: string;
   readonly needsClarification: boolean;
-  readonly clarificationQuestions: readonly string[];
+  readonly clarificationQuestions: readonly ClarificationQuestion[];
   readonly issuePlan?: RequestIssuePlanBundle;
 }
 
@@ -223,48 +237,263 @@ function categoryToWorkflowId(category: RequestCategory): string | undefined {
   }
 }
 
-function buildClarificationQuestions(category: RequestCategory, request: string): readonly string[] {
-  switch (category) {
-    case "casual_or_question":
-      return [];
-    case "single_development_task":
-      return [
-        "Who is the primary user or stakeholder?",
-        "What should count as done?",
-        "What constraints or deadlines matter?",
-      ];
-    case "mvp_or_product_planning":
-      return [
-        "Who are the target users?",
-        "What problem are we solving?",
-        "What is explicitly out of scope for the MVP?",
-        "What risks, constraints, or deadlines should shape the plan?",
-      ];
-    case "multi_issue_project":
-      return [
-        "What are the separate deliverables we need to split out?",
-        "Which item is highest priority?",
-        "What dependencies or sequencing constraints matter?",
-      ];
-    case "review_task":
-      return [
-        "What change set or scope should be reviewed?",
-        "What are the blocking versus non-blocking criteria?",
-        "What evidence should the review focus on?",
-      ];
-    case "bugfix_task":
-      return [
-        "What is the expected behavior?",
-        "How can the bug be reproduced?",
-        "What environment or data makes the failure visible?",
-      ];
-    case "refactor_task":
-      return [
-        "Which code path or module should be refactored?",
-        "What behavior must remain unchanged?",
-        "What is the acceptable risk level for the refactor?",
-      ];
+function buildClarificationQuestions(category: RequestCategory, request: string): readonly ClarificationQuestion[] {
+  if (category === "casual_or_question") {
+    return [];
   }
+
+  const summary = toIssueSummary(request);
+
+  const makeOption = (
+    label: string,
+    summaryText: string,
+    pros: readonly string[],
+    cons: readonly string[],
+  ): ClarificationQuestionOption => ({
+    label,
+    summary: summaryText,
+    pros,
+    cons,
+  });
+
+  const makeQuestion = (input: ClarificationQuestion): ClarificationQuestion => input;
+
+  return [
+    makeQuestion({
+      question: `What outcome should we optimize for in ${summary}?`,
+      options: [
+        makeOption(
+          "Option A",
+          "Ship the smallest useful version first.",
+          [
+            "Fastest path to something concrete.",
+            "Keeps the first pass focused and easier to review.",
+          ],
+          [
+            "May leave follow-up work for later.",
+            "Can feel incomplete if the end state matters more than speed.",
+          ],
+        ),
+        makeOption(
+          "Option B",
+          "Balance completeness and speed.",
+          [
+            "Better first-pass coverage of the requested outcome.",
+            "Reduces obvious follow-up gaps.",
+          ],
+          [
+            "Broadens the scope compared with a strict MVP.",
+            "May take longer to finish and verify.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Pick the delivery style that matters most, or describe a hybrid if the tradeoff is different.",
+    }),
+    makeQuestion({
+      question: "Who are the primary users or stakeholders we need to satisfy?",
+      options: [
+        makeOption(
+          "Option A",
+          "Optimize for the requester only.",
+          [
+            "Keeps decisions simple and ownership clear.",
+            "Best when the requester is the only person who will use it immediately.",
+          ],
+          [
+            "Can miss secondary users or downstream consumers.",
+            "May need rework if other stakeholders matter later.",
+          ],
+        ),
+        makeOption(
+          "Option B",
+          "Optimize for the requester plus adjacent users.",
+          [
+            "Covers more real-world usage from the start.",
+            "Reduces the risk of obvious edge cases being missed.",
+          ],
+          [
+            "Adds more opinions and potential conflicts.",
+            "Can expand the clarification phase.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Name the primary user and call out any secondary users that would change the design or acceptance criteria.",
+    }),
+    makeQuestion({
+      question: "How narrow should the scope and non-goals be for this work?",
+      options: [
+        makeOption(
+          "Option A",
+          "Tight MVP with explicit non-goals.",
+          [
+            "Easiest to ship and validate.",
+            "Keeps implementation and review scope small.",
+          ],
+          [
+            "Will likely leave obvious follow-up work out of the first pass.",
+            "Can feel incomplete if the request expects a broader outcome.",
+          ],
+        ),
+        makeOption(
+          "Option B",
+          "Phased delivery with a first slice and follow-up slice.",
+          [
+            "Balances speed with a path to broader coverage.",
+            "Makes sequencing and dependencies explicit.",
+          ],
+          [
+            "Requires more planning and coordination.",
+            "Still leaves some work for later phases.",
+          ],
+        ),
+        makeOption(
+          "Option C",
+          "Full scope in one pass.",
+          [
+            "Least fragmentation if the full problem must ship together.",
+            "Avoids designing for a future phase that may never happen.",
+          ],
+          [
+            "Highest risk and largest implementation surface.",
+            "Can make review and testing much heavier.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Tell me what is explicitly in scope, what is out of scope, and which items must stay out of the first delivery.",
+    }),
+    makeQuestion({
+      question: "What constraints or risks should dominate the plan?",
+      options: [
+        makeOption(
+          "Option A",
+          "Optimize for speed.",
+          [
+            "Gets feedback quickly.",
+            "Works well when the main risk is delay.",
+          ],
+          [
+            "Can increase technical debt or shortcut later cleanup.",
+            "May be too aggressive for sensitive changes.",
+          ],
+        ),
+        makeOption(
+          "Option B",
+          "Optimize for safety and rollback.",
+          [
+            "Reduces blast radius if the first attempt is wrong.",
+            "Good for user-facing or production-sensitive changes.",
+          ],
+          [
+            "Needs more structure and validation.",
+            "Usually takes longer to complete.",
+          ],
+        ),
+        makeOption(
+          "Option C",
+          "Optimize for compatibility with existing behavior.",
+          [
+            "Minimizes surprise for current users.",
+            "Helpful when the existing contract is already relied on.",
+          ],
+          [
+            "May constrain cleaner redesigns.",
+            "Can preserve awkward legacy behavior.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option B",
+      whatINeedFromYou: "Call out deadlines, compatibility concerns, rollout risks, and anything that would make us choose a safer path.",
+    }),
+    makeQuestion({
+      question: "Are there data model, security, or integration concerns we must design around?",
+      options: [
+        makeOption(
+          "Option A",
+          "Minimize schema and integration changes.",
+          [
+            "Least risky for existing consumers.",
+            "Usually quickest to wire up.",
+          ],
+          [
+            "Can force workarounds or special cases.",
+            "May not solve the underlying contract cleanly.",
+          ],
+        ),
+        makeOption(
+          "Option B",
+          "Introduce a clearer contract even if it changes the shape.",
+          [
+            "Cleaner long-term maintenance.",
+            "Better when the current model is already confusing.",
+          ],
+          [
+            "More coordination and migration work.",
+            "Potentially higher short-term breakage risk.",
+          ],
+        ),
+        makeOption(
+          "Option C",
+          "Isolate the risky parts behind an adapter or boundary.",
+          [
+            "Contains blast radius around the unstable area.",
+            "Useful when integration or auth boundaries are uncertain.",
+          ],
+          [
+            "Adds abstraction and extra code paths.",
+            "Can be overkill for a small change.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Tell me if we are touching persisted data, permissions, external services, or any security-sensitive surface.",
+    }),
+    makeQuestion({
+      question: "How should we prove the change works?",
+      options: [
+        makeOption(
+          "Option A",
+          "Automated tests are the primary bar.",
+          [
+            "Repeatable and easy to rerun.",
+            "Best when regression risk matters.",
+          ],
+          [
+            "Can take longer to implement.",
+            "May miss some product nuances without a manual check.",
+          ],
+        ),
+        makeOption(
+          "Option B",
+          "Manual verification is enough for now.",
+          [
+            "Fastest path to a confidence check.",
+            "Works when the change is small or exploratory.",
+          ],
+          [
+            "Weaker evidence than repeatable tests.",
+            "Harder to reuse later.",
+          ],
+        ),
+        makeOption(
+          "Option C",
+          "Use both automated and manual evidence.",
+          [
+            "Strongest confidence in the result.",
+            "Useful when the change is visible or user-facing.",
+          ],
+          [
+            "Higher verification cost.",
+            "Can slow down the delivery loop.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option C",
+      whatINeedFromYou: "Tell me which checks are mandatory so I can line up the right tests, commands, or manual proof.",
+    }),
+  ];
 }
 
 function buildEvidenceRequirements(category: RequestCategory): readonly string[] {
@@ -520,6 +749,7 @@ export function analyzeRequest(request: string): RequestAnalysis {
   const issueType = categoryToIssueType(category, normalizedRequest);
   const workflowId = categoryToWorkflowId(category);
   const issuePlan = buildIssuePlan(category, normalizedRequest, suggestedTitle);
+  const clarificationQuestions = buildClarificationQuestions(category, normalizedRequest);
 
   const reasonByCategory: Record<Exclude<RequestCategory, "casual_or_question">, string> = {
     single_development_task: "This is a single development task that should be routed to one workflow.",
@@ -541,8 +771,8 @@ export function analyzeRequest(request: string): RequestAnalysis {
     ...(workflowId === undefined ? {} : { workflowId }),
     suggestedTitle,
     reason: reasonByCategory[actionableCategory],
-    needsClarification: true,
-    clarificationQuestions: buildClarificationQuestions(category, normalizedRequest),
+    needsClarification: clarificationQuestions.length > 0,
+    clarificationQuestions,
     ...(issuePlan === undefined ? {} : { issuePlan }),
   };
 }

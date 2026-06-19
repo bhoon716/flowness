@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   analyzeRequest,
+  type ClarificationQuestion,
   applyHumanGateInstruction,
   ensureDirectory,
   joinPaths,
@@ -35,6 +36,8 @@ import {
 import {
   appendLogEntryToIssue,
   createLogEntry,
+  readIssueLogEntries,
+  readLatestIssueLogEntry,
 } from "@flowness-labs/log-system";
 import {
   listDecisionDocuments,
@@ -1641,7 +1644,12 @@ async function findReusableIssueWorkspace(
     }
   }
 
-  return bestMatch?.workspace ?? null;
+  if (bestMatch === null) {
+    return null;
+  }
+
+  await assertIssueWorkspaceLogAlignment(rootDir, bestMatch.workspace);
+  return bestMatch.workspace;
 }
 
 function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
@@ -1655,10 +1663,9 @@ function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
   ];
 
   if (analysis.clarificationQuestions.length > 0) {
+    lines.push("");
     lines.push("Clarifying questions:");
-    for (const question of analysis.clarificationQuestions) {
-      lines.push(`- ${question}`);
-    }
+    lines.push(...renderClarificationQuestions(analysis.clarificationQuestions));
   }
 
   if (analysis.issuePlan !== undefined) {
@@ -1668,6 +1675,44 @@ function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
   }
 
   return lines.join("\n");
+}
+
+function renderClarificationQuestion(
+  question: ClarificationQuestion,
+  index: number,
+): string[] {
+  const lines = [
+    `${index}. ${question.question}`,
+  ];
+
+  for (const option of question.options) {
+    lines.push(`   ${option.label}: ${option.summary}`);
+    lines.push("     Pros:");
+    for (const pro of option.pros) {
+      lines.push(`     - ${pro}`);
+    }
+    lines.push("     Cons:");
+    for (const con of option.cons) {
+      lines.push(`     - ${con}`);
+    }
+  }
+
+  lines.push(`   Recommended default: ${question.recommendedDefault}`);
+  lines.push(`   What I need from you: ${question.whatINeedFromYou}`);
+  return lines;
+}
+
+function renderClarificationQuestions(
+  questions: readonly ClarificationQuestion[],
+): string[] {
+  const lines: string[] = [];
+  for (const [index, question] of questions.entries()) {
+    if (index > 0) {
+      lines.push("");
+    }
+    lines.push(...renderClarificationQuestion(question, index + 1));
+  }
+  return lines;
 }
 
 function formatIssueSummary(result: Awaited<ReturnType<typeof createIssueWorkspace>>): string {
@@ -1734,10 +1779,9 @@ function formatQuestionOrCasualSummary(analysis: RequestAnalysis): string {
   ];
 
   if (analysis.clarificationQuestions.length > 0) {
+    lines.push("");
     lines.push("Clarifying questions:");
-    for (const question of analysis.clarificationQuestions) {
-      lines.push(`- ${question}`);
-    }
+    lines.push(...renderClarificationQuestions(analysis.clarificationQuestions));
   }
 
   return lines.join("\n");
@@ -1835,16 +1879,73 @@ function formatWorkflowRecoverSummary(
 async function persistWorkflowOutcome(input: {
   readonly rootDir: string;
   readonly workspace: Awaited<ReturnType<typeof loadIssueWorkspaceOrThrow>>;
+  readonly workflow: Awaited<ReturnType<typeof buildWorkflowDefinition>>;
   readonly stepName: string;
   readonly outcome: Awaited<ReturnType<typeof runWorkflowStep>>;
 }): Promise<CliResult> {
-  const { rootDir, workspace, stepName, outcome } = input;
+  const { rootDir, workspace, workflow, stepName, outcome } = input;
 
   if (outcome.nextStep === null) {
     const currentEvidence = [
       ...(await collectIssueEvidence(rootDir, workspace.issue.id)),
       ...outcome.state.evidence,
     ];
+
+    const requiresEvidenceReview = workflow.steps.some((step) => step.name === "Evidence Review")
+      || workflow.steps.some((step) => step.name === "Implementation");
+
+    if (requiresEvidenceReview) {
+      try {
+        await assertEvidenceReviewLoggedBeforeClose(rootDir, workspace.issue.id);
+      } catch (error) {
+        const blockedAt = new Date().toISOString();
+        const message = error instanceof Error ? error.message : String(error);
+        const blockedEvidence = createEvidenceRecord({
+          kind: "command_output",
+          title: "Evidence Review gate",
+          detail: message,
+        });
+        const blockedState = {
+          ...outcome.state,
+          currentStep: stepName,
+          failedSteps: outcome.state.failedSteps.includes(stepName)
+            ? [...outcome.state.failedSteps]
+            : [...outcome.state.failedSteps, stepName],
+          blocked: true,
+          updatedAt: blockedAt,
+          evidence: [
+            ...currentEvidence,
+            blockedEvidence,
+          ],
+        };
+        const blockedLogEntry = createLogEntry({
+          timestamp: blockedAt,
+          step: "Close Blocked",
+          actions: [
+            `Close is blocked for "${workspace.issue.id}" because Evidence Review is missing from the log.`,
+            "Recovery: record an Evidence Review log entry before retrying close.",
+          ],
+          evidence: [
+            ...currentEvidence,
+            blockedEvidence,
+          ],
+          summary: "Close is blocked until Evidence Review is logged.",
+          nextStep: stepName,
+        });
+
+        await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, blockedLogEntry);
+        await writeIssueWorkspaceState(rootDir, workspace.issue, blockedState, workspace.description);
+
+        return {
+          exitCode: 1,
+          output: [
+            `Workflow close blocked for ${workspace.issue.id}.`,
+            message,
+          ].join("\n"),
+        };
+      }
+    }
+
     const reviewResults = runStandardReviews({
       rootDir,
       issueId: workspace.issue.id,
@@ -1928,12 +2029,12 @@ async function persistWorkflowOutcome(input: {
       nextStep: null,
     });
 
-    await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, outcome.logEntry);
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, reviewLogEntry);
-  } else {
     await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
+  } else {
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, outcome.logEntry);
+    await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
   }
 
   return {
@@ -2014,6 +2115,59 @@ async function ensureInitializedProject(rootDir: string): Promise<void> {
   }
 }
 
+function normalizeWorkflowStateStep(step: string): string | null {
+  const trimmed = step.trim();
+  if (trimmed.length === 0 || /^(complete|completed|finish|finished|null)$/i.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+async function assertIssueWorkspaceLogAlignment(
+  rootDir: string,
+  workspace: Awaited<ReturnType<typeof readIssueWorkspace>>,
+): Promise<void> {
+  if (workspace === null) {
+    throw new Error("Issue workspace is missing.");
+  }
+
+  const latestLogEntry = await readLatestIssueLogEntry(rootDir, workspace.issue.id);
+  if (latestLogEntry === null) {
+    throw new Error([
+      `State/log mismatch detected for ${workspace.issue.id}.`,
+      `workflow-state.json currentStep: ${workspace.workflowState.currentStep || "complete"}`,
+      "Latest log entry: none",
+      "Recovery: restore the missing append-only issue log entry, then rerun the workflow step.",
+    ].join("\n"));
+  }
+
+  const normalizedCurrentStep = normalizeWorkflowStateStep(workspace.workflowState.currentStep);
+  if (normalizedCurrentStep !== latestLogEntry.nextStep) {
+    throw new Error([
+      `State/log mismatch detected for ${workspace.issue.id}.`,
+      `workflow-state.json currentStep: ${workspace.workflowState.currentStep || "complete"}`,
+      `Latest log entry: ${latestLogEntry.step} -> ${latestLogEntry.nextStep ?? "complete"}`,
+      "Recovery: repair the last append-only log/state transition so the state matches the latest log entry before continuing.",
+    ].join("\n"));
+  }
+}
+
+async function assertEvidenceReviewLoggedBeforeClose(
+  rootDir: string,
+  issueId: string,
+): Promise<void> {
+  const logEntries = await readIssueLogEntries(rootDir, issueId);
+  if (logEntries.some((entry) => entry.step === "Evidence Review")) {
+    return;
+  }
+
+  throw new Error([
+    `Evidence Review is required before Close for ${issueId}.`,
+    "Recovery: return to the implementation flow, record an Evidence Review log entry with changed files, commands, documentation updates, and unresolved risks, then retry close.",
+  ].join("\n"));
+}
+
 async function loadIssueWorkspaceOrThrow(
   rootDir: string,
   issueId: string,
@@ -2023,6 +2177,7 @@ async function loadIssueWorkspaceOrThrow(
     throw new Error(`Issue workspace not found: ${issueId}`);
   }
 
+  await assertIssueWorkspaceLogAlignment(rootDir, workspace);
   return workspace;
 }
 
@@ -2222,7 +2377,9 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
       `Routed to ${activeWorkspace.issue.workflowId}.`,
       "Start with 01-intake.md / clarification before implementation.",
       ...(analysis.needsClarification ? ["Implementation is blocked until clarification questions are answered."] : []),
-      ...(analysis.clarificationQuestions.length === 0 ? [] : [`Clarifying questions: ${analysis.clarificationQuestions.join(" | ")}`]),
+      ...(analysis.clarificationQuestions.length === 0
+        ? []
+        : [`Clarifying questions: ${analysis.clarificationQuestions.map((question) => question.question).join(" | ")}`]),
       ...(analysis.issuePlan === undefined ? [] : [`Child issues planned: ${analysis.issuePlan.childIssues.length}`]),
     ],
     evidence: [
@@ -2668,6 +2825,7 @@ async function runWorkflowStepCommand(command: ParsedWorkflowStepCommand): Promi
   return persistWorkflowOutcome({
     rootDir,
     workspace,
+    workflow,
     stepName,
     outcome,
   });
@@ -2702,8 +2860,8 @@ async function runWorkflowRecoverCommand(command: ParsedWorkflowRecoverCommand):
     rootCause: command.rootCause,
   });
 
-  await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
   await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, outcome.logEntry);
+  await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
 
   const retryContext = createWorkflowStepContext({
     issueId: workspace.issue.id,
@@ -2727,6 +2885,7 @@ async function runWorkflowRecoverCommand(command: ParsedWorkflowRecoverCommand):
       ...workspace,
       workflowState: outcome.state,
     },
+    workflow,
     stepName,
     outcome: retryOutcome,
   });
@@ -2998,7 +3157,7 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
       if (!parsed.command.startsWith("-")) {
         const request = [parsed.command, ...argv.slice(1)].join(" ").trim();
         if (request.length > 0 && isLikelyNaturalLanguageRequest(request)) {
-          return runRequestCreateCommand({
+          return await runRequestCreateCommand({
             kind: "request:create",
             request,
             force: false,
@@ -3013,75 +3172,75 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     }
 
     if (parsed.kind === "init") {
-      return runInitCommand(parsed);
+      return await runInitCommand(parsed);
     }
 
     if (parsed.kind === "issue:create") {
-      return runIssueCreateCommand(parsed);
+      return await runIssueCreateCommand(parsed);
     }
 
     if (parsed.kind === "request:create") {
-      return runRequestCreateCommand(parsed);
+      return await runRequestCreateCommand(parsed);
     }
 
     if (parsed.kind === "skill:run") {
-      return runSkillRunCommand(parsed);
+      return await runSkillRunCommand(parsed);
     }
 
     if (parsed.kind === "workflow:create") {
-      return runWorkflowCreateCommand(parsed);
+      return await runWorkflowCreateCommand(parsed);
     }
 
     if (parsed.kind === "workflow:validate") {
-      return runWorkflowValidateCommand(parsed);
+      return await runWorkflowValidateCommand(parsed);
     }
 
     if (parsed.kind === "workflow:step") {
-      return runWorkflowStepCommand(parsed);
+      return await runWorkflowStepCommand(parsed);
     }
 
     if (parsed.kind === "workflow:recover") {
-      return runWorkflowRecoverCommand(parsed);
+      return await runWorkflowRecoverCommand(parsed);
     }
 
     if (parsed.kind === "decision:create") {
-      return runDecisionCreateCommand(parsed);
+      return await runDecisionCreateCommand(parsed);
     }
 
     if (parsed.kind === "review:run") {
-      return runReviewRunCommand(parsed);
+      return await runReviewRunCommand(parsed);
     }
 
     if (parsed.kind === "skill:create") {
-      return runSkillCreateCommand(parsed);
+      return await runSkillCreateCommand(parsed);
     }
 
     if (parsed.kind === "skill:list") {
-      return runSkillListCommand();
+      return await runSkillListCommand();
     }
 
     if (parsed.kind === "rule:create") {
-      return runRuleCreateCommand(parsed);
+      return await runRuleCreateCommand(parsed);
     }
 
     if (parsed.kind === "rule:apply") {
-      return runRuleApplyCommand(parsed);
+      return await runRuleApplyCommand(parsed);
     }
 
     if (parsed.kind === "rule:list") {
-      return runRuleListCommand();
+      return await runRuleListCommand();
     }
 
     if (parsed.kind === "config:gate") {
-      return runConfigGateCommand(parsed);
+      return await runConfigGateCommand(parsed);
     }
 
     if (parsed.kind === "validate") {
-      return runValidateCommand();
+      return await runValidateCommand();
     }
 
     if (parsed.kind === "upgrade") {
-      return runUpgradeCommand();
+      return await runUpgradeCommand();
     }
 
     return {
