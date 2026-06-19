@@ -75,7 +75,10 @@ async function main() {
     ensureFile(join(sandboxRoot, ".agent/README.md"), "init scaffold agent README");
     ensureFile(join(sandboxRoot, ".agent/prompts/core-agent.md"), "init scaffold core prompt");
     ensureFile(join(sandboxRoot, ".agent/prompts/review-agent.md"), "init scaffold review prompt");
+    ensureFile(join(sandboxRoot, ".agent/scripts/flowness-runner.ts"), "init scaffold runner script");
+    ensureFile(join(sandboxRoot, ".agent/scripts/workflow-guard.ts"), "init scaffold workflow guard");
     ensureFile(join(sandboxRoot, ".agent/scripts/check-md-size.py"), "init scaffold script");
+    ensureFile(join(sandboxRoot, ".agent/workflows/feature-development/README.md"), "init scaffold feature workflow");
 
     const validateOutput = runCommand("validate-sandbox", flownessCommand, ["validate"], sandboxRoot);
     ensureOutputIncludes(validateOutput, "Workflow validation passed for workspace.", "validate output");

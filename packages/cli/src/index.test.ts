@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -16,6 +16,20 @@ async function withWorkingDirectory<T>(
   } finally {
     process.chdir(previous);
   }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listIssueDirectories(rootDir: string): Promise<readonly string[]> {
+  const entries = await readdir(join(rootDir, ".agent", "issues"));
+  return entries.filter((name) => name.startsWith("ISSUE-"));
 }
 
 test("parseCommand handles init with options", () => {
@@ -44,7 +58,73 @@ test("runCli captures a request as an issue", async () => {
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["request:create", "로그인 기능을 만들어줘"]);
     assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Captured request as issue ISSUE-001-REQUEST/);
+    assert.match(result.output, /Captured request as issue ISSUE-001-[A-Z0-9-]+/);
+    assert.match(result.output, /Type: feature/);
+    assert.match(result.output, /Workflow: feature-development/);
+
+    const issueDirectories = await listIssueDirectories(rootDir);
+    assert.equal(issueDirectories.length, 1);
+  });
+});
+
+test("runCli leaves casual questions as answers without issues", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-question-"));
+
+  const result = await withWorkingDirectory(rootDir, async () => runCli(["request:create", "지금 시간이 몇 시야?"]));
+  assert.equal(result.exitCode, 0);
+  assert.match(result.output, /No issue created\./);
+  assert.match(result.output, /Category: casual_or_question/);
+  assert.equal(await exists(join(rootDir, ".agent", "issues")), false);
+});
+
+test("runCli routes MVP requests through the MVP planning workflow", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-mvp-"));
+  const initResult = await runCli(["init", rootDir, "--name", "mvp-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli(["request:create", "온보딩 MVP를 기획해줘"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Workflow: mvp-planning/);
+    assert.match(result.output, /Category: mvp_or_product_planning/);
+
+    const issueDirectories = await listIssueDirectories(rootDir);
+    assert.equal(issueDirectories.length, 1);
+  });
+});
+
+test("runCli decomposes multi issue requests into parent and child issues", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-multi-issue-"));
+  const initResult = await runCli(["init", rootDir, "--name", "multi-issue-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli([
+      "request:create",
+      "로그인 화면을 만들고; 비밀번호 재설정 페이지도 추가해줘; 알림 설정도 구현해줘",
+    ]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Category: multi_issue_project/);
+    assert.match(result.output, /Child issues:/);
+
+    const issueDirectories = await listIssueDirectories(rootDir);
+    assert.equal(issueDirectories.length, 4);
+
+    const parentIssueName = issueDirectories.find((name) => name.startsWith("ISSUE-001-"));
+    if (parentIssueName === undefined) {
+      throw new Error("Expected parent issue workspace to be created.");
+    }
+
+    const parentIssue = JSON.parse(await readFile(join(rootDir, ".agent", "issues", parentIssueName, "issue.json"), "utf8")) as {
+      issue: { childIssueIds?: readonly string[] };
+    };
+    assert.ok(parentIssue.issue.childIssueIds !== undefined);
+    assert.equal(parentIssue.issue.childIssueIds?.length, 3);
+
+    const decomposition = JSON.parse(await readFile(join(rootDir, ".agent", "issues", parentIssueName, "decomposition.json"), "utf8")) as {
+      childIssues: readonly unknown[];
+    };
+    assert.equal(decomposition.childIssues.length, 3);
   });
 });
 
@@ -56,7 +136,8 @@ test("runCli auto-captures freeform requests as issues", async () => {
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["로그인", "기능을", "만들어줘"]);
     assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Captured request as issue ISSUE-001-REQUEST/);
+    assert.match(result.output, /Captured request as issue ISSUE-001-[A-Z0-9-]+/);
+    assert.match(result.output, /Workflow: feature-development/);
   });
 });
 
@@ -128,7 +209,7 @@ test("runCli advances workflows, records decisions, and runs reviews", async () 
     assert.match(approvedStep.output, /Workflow step completed/);
 
     const workflowState = JSON.parse(await readFile(join(rootDir, ".agent/issues", issueName, "workflow-state.json"), "utf8")) as { currentStep: string };
-    assert.equal(workflowState.currentStep, "Design");
+    assert.equal(workflowState.currentStep, "Clarifying Questions");
 
     const decisionResult = await runCli([
       "decision:create",
@@ -282,7 +363,7 @@ test("runCli loads custom workflow files when creating issues", async () => {
 
     const stepResult = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
     assert.equal(stepResult.exitCode, 0);
-    assert.match(stepResult.output, /Next step: Work/);
+    assert.match(stepResult.output, /Next step: Clarification/);
   });
 });
 

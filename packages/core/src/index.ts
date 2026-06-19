@@ -26,6 +26,21 @@ export {
   initializeProject,
 } from "./scaffold.js";
 export {
+  analyzeRequest,
+  classifyRequest,
+  createIssueSlugFromRequest,
+  createIssueTitleFromRequest,
+  deriveIssueTypeForRequest,
+  deriveWorkflowIdForRequest,
+  isLikelyNaturalLanguageRequest,
+  shouldCreateIssueForRequest,
+} from "./request-routing.js";
+export type {
+  RequestCategory,
+  RequestAnalysis,
+  RequestIssuePlanBundle,
+} from "./request-routing.js";
+export {
   resolveIssuePaths,
   resolvePromptScaffoldPaths,
   resolveScriptScaffoldPaths,
@@ -44,6 +59,8 @@ export type {
   InitializeProjectOptions,
   InitializeProjectResult,
   IssueRecord,
+  IssueDecomposition,
+  IssuePlan,
   IssueState,
   IssueType,
   LogEntry,

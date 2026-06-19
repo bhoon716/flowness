@@ -119,6 +119,29 @@ export interface IssueRecord {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly logPath: string;
+  readonly parentIssueId?: string | null;
+  readonly childIssueIds?: readonly string[];
+  readonly goal?: string;
+  readonly acceptanceCriteria?: readonly string[];
+  readonly dependencies?: readonly string[];
+  readonly evidenceRequired?: readonly string[];
+  readonly decompositionFile?: string | null;
+}
+
+export interface IssuePlan {
+  readonly title: string;
+  readonly type: IssueType;
+  readonly workflowId: string;
+  readonly goal: string;
+  readonly acceptanceCriteria: readonly string[];
+  readonly dependencies: readonly string[];
+  readonly evidenceRequired: readonly string[];
+}
+
+export interface IssueDecomposition {
+  readonly parentIssueId: string | null;
+  readonly parentIssueTitle: string;
+  readonly childIssues: readonly IssuePlan[];
 }
 
 export interface DecisionDocument {
@@ -183,4 +206,3 @@ export interface InitializeProjectResult {
   readonly createdFiles: readonly string[];
   readonly skippedFiles: readonly string[];
 }
-

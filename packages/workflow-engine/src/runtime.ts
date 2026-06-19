@@ -182,7 +182,7 @@ export async function runWorkflowStep(
   try {
     const result = await step.execute(input.context);
 
-    return finalizeWorkflowStepRun({
+    return await finalizeWorkflowStepRun({
       workflow,
       state: input.state,
       step,
@@ -208,7 +208,7 @@ export async function runWorkflowStep(
 
     if (failureResult instanceof Promise) {
       const awaitedFailureResult = await failureResult;
-      return finalizeWorkflowFailure({
+      return await finalizeWorkflowFailure({
         workflow,
         state: input.state,
         step,
@@ -218,7 +218,7 @@ export async function runWorkflowStep(
       });
     }
 
-    return finalizeWorkflowFailure({
+    return await finalizeWorkflowFailure({
       workflow,
       state: input.state,
       step,

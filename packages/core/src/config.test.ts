@@ -14,7 +14,9 @@ test("project config round-trips through yaml", () => {
 
   assert.equal(parsed.projectName, "flowness-demo");
   assert.equal(parsed.humanGate.clarification, "always");
-  assert.equal(parsed.defaultWorkflows.feature, "feature");
+  assert.equal(parsed.defaultWorkflows.feature, "feature-development");
+  assert.equal(parsed.defaultWorkflows.planning, "mvp-planning");
+  assert.equal(parsed.defaultWorkflows.mvp, "mvp-planning");
   assert.equal(parsed.documentationRules.appendOnly, true);
   assert.equal(parsed.documentationRules.preservePromptText, true);
 });

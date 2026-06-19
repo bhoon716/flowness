@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import type { WorkflowDefinition } from "@flowness/core";
+import type {
+  EvidenceRecord,
+  GateMode,
+  WorkflowDefinition,
+  WorkflowStepContext,
+  WorkflowStepDefinition,
+} from "@flowness/core";
 import {
   createWorkflowDefinitionFromBlueprint,
   createGenericWorkflowDefinition,
@@ -15,6 +21,7 @@ import {
 import {
   pathExists,
   readTextFile,
+  resolveIssuePaths,
   resolveWorkflowScaffoldPaths,
 } from "@flowness/core";
 
@@ -103,6 +110,273 @@ function isWorkflowBlueprint(value: unknown): value is WorkflowBlueprint {
   });
 }
 
+function humanizeWorkflowId(workflowId: string): string {
+  return workflowId
+    .split(/[-_]+/)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function parseMarkdownFrontmatter(source: string): Record<string, string> {
+  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  if (lines[0]?.trim() !== "---") {
+    return {};
+  }
+
+  const frontmatter: Record<string, string> = {};
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined || line.trim() === "---") {
+      break;
+    }
+
+    const match = line.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
+    if (match === null) {
+      continue;
+    }
+
+    const key = match[1]?.trim();
+    const rawValue = match[2]?.trim() ?? "";
+    if (key !== undefined && key.length > 0) {
+      frontmatter[key] = rawValue.replace(/^["']|["']$/g, "");
+    }
+  }
+
+  return frontmatter;
+}
+
+function extractFirstHeading(source: string): string | undefined {
+  for (const line of source.replace(/\r\n/g, "\n").split("\n")) {
+    const match = line.match(/^#\s+(.+?)\s*$/);
+    if (match !== null) {
+      return match[1]?.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function collectMarkdownSectionLines(source: string, sectionTitle: string): readonly string[] {
+  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  const target = sectionTitle.trim().toLowerCase();
+  const collected: string[] = [];
+  let inSection = false;
+
+  for (const line of lines) {
+    const heading = line.match(/^(#{2,6})\s+(.+?)\s*$/);
+    if (heading !== null) {
+      if (inSection) {
+        break;
+      }
+
+      const headingTitle = heading[2]?.trim().toLowerCase() ?? "";
+      inSection = headingTitle === target;
+      continue;
+    }
+
+    if (inSection) {
+      collected.push(line);
+    }
+  }
+
+  return collected.map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
+function collectMarkdownBullets(lines: readonly string[]): readonly string[] {
+  const bullets: string[] = [];
+  for (const line of lines) {
+    const match = line.match(/^\s*[-*+]\s+(.*)$/);
+    if (match !== null) {
+      const value = match[1]?.trim();
+      if (value !== undefined && value.length > 0) {
+        bullets.push(value);
+      }
+    }
+  }
+
+  return bullets;
+}
+
+function normalizeWorkflowGate(value: string | undefined): "always" | "optional" | "never" | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case "always":
+      return "always";
+    case "optional":
+      return "optional";
+    case "never":
+      return "never";
+    default:
+      return undefined;
+  }
+}
+
+function normalizeWorkflowNext(value: string | undefined): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  if (/^(none|null|complete|finish|finished)$/i.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+async function collectMarkdownWorkflowEvidence(
+  context: WorkflowStepContext,
+  workflowName: string,
+  stepName: string,
+): Promise<readonly EvidenceRecord[]> {
+  const issuePaths = resolveIssuePaths(context.rootDir, context.issueId);
+  const candidates: Array<[string, string]> = [
+    [issuePaths.issueFile, "issue.md"],
+    [issuePaths.issueJsonFile, "issue.json"],
+    [issuePaths.workflowStateFile, "workflow-state.json"],
+    [issuePaths.logFile, `${context.issueId}.md`],
+    [join(issuePaths.decisionsDir, "README.md"), "decisions/README.md"],
+    [join(issuePaths.reviewsDir, "README.md"), "reviews/README.md"],
+  ];
+
+  const evidence: EvidenceRecord[] = [];
+  for (const [location, title] of candidates) {
+    if (await pathExists(location)) {
+      evidence.push({
+        kind: "file",
+        title,
+        location,
+        detail: `${workflowName} step ${stepName}`,
+      });
+    }
+  }
+
+  return evidence;
+}
+
+interface MarkdownWorkflowStepBlueprint {
+  readonly name: string;
+  readonly preconditions: readonly string[];
+  readonly successConditions: readonly string[];
+  readonly humanGate?: GateMode;
+  readonly next?: string | null;
+}
+
+function parseMarkdownWorkflowStep(
+  source: string,
+  workflowId: string,
+  previousStepName: string | null,
+): MarkdownWorkflowStepBlueprint {
+  const frontmatter = parseMarkdownFrontmatter(source);
+  const heading = extractFirstHeading(source) ?? frontmatter.name ?? humanizeWorkflowId(workflowId);
+  const name = frontmatter.name?.trim() || heading;
+  const preconditionLines = collectMarkdownBullets(collectMarkdownSectionLines(source, "Required Inputs"));
+  const evidenceLines = collectMarkdownBullets(collectMarkdownSectionLines(source, "Evidence Required"));
+  const exitLines = collectMarkdownBullets(collectMarkdownSectionLines(source, "Exit Criteria"));
+  const explicitNext = normalizeWorkflowNext(frontmatter.next ?? collectMarkdownBullets(collectMarkdownSectionLines(source, "Next Step"))[0]);
+  const humanGate = normalizeWorkflowGate(frontmatter.human_gate ?? frontmatter.humanGate);
+
+  return {
+    name,
+    preconditions: preconditionLines.length > 0
+      ? preconditionLines
+      : previousStepName === null
+        ? ["A request or issue exists."]
+        : [`"${previousStepName}" has completed.`],
+    successConditions: [...evidenceLines, ...exitLines].length > 0
+      ? [...evidenceLines, ...exitLines]
+      : [
+        `The ${name.toLowerCase()} outcome is documented.`,
+        "The next step is documented in the workflow.",
+      ],
+    ...(humanGate === undefined ? {} : { humanGate }),
+    ...(explicitNext === undefined ? {} : { next: explicitNext }),
+  };
+}
+
+async function readWorkflowTitle(
+  workflowDir: string,
+  workflowId: string,
+): Promise<string> {
+  const readmePath = join(workflowDir, "README.md");
+  if (!(await pathExists(readmePath))) {
+    return humanizeWorkflowId(workflowId);
+  }
+
+  const source = await readTextFile(readmePath);
+  return extractFirstHeading(source) ?? humanizeWorkflowId(workflowId);
+}
+
+async function collectMarkdownWorkflowStepFiles(workflowDir: string): Promise<readonly string[]> {
+  const entries = await readdir(workflowDir, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name.toLowerCase() !== "readme.md")
+    .map((entry) => entry.name)
+    .sort();
+}
+
+async function loadMarkdownWorkflowDefinitionFromWorkspace(
+  workflowDir: string,
+  workflowId: string,
+): Promise<WorkflowDefinition | undefined> {
+  if (!(await pathExists(workflowDir))) {
+    return undefined;
+  }
+
+  const stepFiles = await collectMarkdownWorkflowStepFiles(workflowDir);
+  if (stepFiles.length === 0) {
+    return undefined;
+  }
+
+  const workflowName = await readWorkflowTitle(workflowDir, workflowId);
+  const stepSources = await Promise.all(stepFiles.map(async (fileName) => ({
+    fileName,
+    source: await readTextFile(join(workflowDir, fileName)),
+  })));
+
+  const stepBlueprints: MarkdownWorkflowStepBlueprint[] = [];
+  for (let index = 0; index < stepSources.length; index += 1) {
+    const previousStepName = index === 0 ? null : stepBlueprints[index - 1]?.name ?? null;
+    const current = stepSources[index];
+    if (current === undefined) {
+      continue;
+    }
+
+    stepBlueprints.push(parseMarkdownWorkflowStep(
+      current.source,
+      workflowId,
+      previousStepName,
+    ));
+  }
+
+  const steps = stepBlueprints.map((blueprint, index) => {
+    const resolvedNext = blueprint.next ?? stepBlueprints[index + 1]?.name ?? null;
+
+    return {
+      name: blueprint.name,
+      preconditions: blueprint.preconditions,
+      successConditions: blueprint.successConditions,
+      ...(blueprint.humanGate === undefined ? {} : { humanGate: blueprint.humanGate }),
+      next: resolvedNext,
+      execute: async (context: WorkflowStepContext) => ({
+        summary: `Prepared ${workflowName} step "${blueprint.name}".`,
+        evidence: await collectMarkdownWorkflowEvidence(context, workflowName, blueprint.name),
+        nextStep: resolvedNext,
+      }),
+    } satisfies WorkflowStepDefinition;
+  });
+
+  return defineWorkflow({
+    id: workflowId,
+    name: workflowName,
+    steps,
+  });
+}
+
 export async function loadWorkflowDefinitionFromFile(
   filePath: string,
 ): Promise<WorkflowDefinition> {
@@ -141,6 +415,14 @@ export async function loadWorkflowDefinitionFromWorkspace(
     if (await pathExists(candidate)) {
       return loadWorkflowDefinitionFromFile(candidate);
     }
+  }
+
+  const markdownWorkflow = await loadMarkdownWorkflowDefinitionFromWorkspace(
+    workflowPaths.workflowDir,
+    workflowId,
+  );
+  if (markdownWorkflow !== undefined) {
+    return markdownWorkflow;
   }
 
   return undefined;

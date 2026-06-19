@@ -406,6 +406,6 @@ export function createGenericWorkflowDefinition(
   return createWorkflowDefinitionFromBlueprint({
     id: workflowId,
     name: workflowName,
-    steps: ["Intake", "Work", "Review", "Close"],
+    steps: ["Intake", "Clarification", "Work", "Review", "Close"],
   });
 }

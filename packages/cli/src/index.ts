@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  analyzeRequest,
   applyHumanGateInstruction,
   ensureDirectory,
   joinPaths,
@@ -12,8 +13,11 @@ import {
   resolveRuleScaffoldPaths,
   resolveSkillScaffoldPaths,
   resolveWorkflowScaffoldPaths,
+  isLikelyNaturalLanguageRequest,
   slugify,
   type EvidenceRecord,
+  type IssuePlan,
+  type RequestAnalysis,
   toUpperSnake,
   writeTextFile,
   writeProjectConfig,
@@ -22,6 +26,8 @@ import {
 } from "@flowness/core";
 import {
   createIssueWorkspace,
+  createIssueId,
+  findNextIssueSequence,
   readIssueWorkspace,
   writeIssueWorkspaceState,
 } from "@flowness/issue-system";
@@ -79,7 +85,7 @@ export interface ParsedIssueCreateCommand {
 export interface ParsedRequestCreateCommand {
   readonly kind: "request:create";
   readonly request: string;
-  readonly type: (typeof issueTypeValues)[number];
+  readonly type?: (typeof issueTypeValues)[number];
   readonly workflowId?: string;
   readonly force: boolean;
 }
@@ -425,7 +431,7 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
 }
 
 function parseRequestCreateCommand(rest: readonly string[]): ParsedRequestCreateCommand {
-  let type: (typeof issueTypeValues)[number] = "feature";
+  let type: (typeof issueTypeValues)[number] | undefined;
   let workflowId: string | undefined;
   let force = false;
   const positional: string[] = [];
@@ -482,8 +488,8 @@ function parseRequestCreateCommand(rest: readonly string[]): ParsedRequestCreate
   return {
     kind: "request:create",
     request,
-    type,
     force,
+    ...(type === undefined ? {} : { type }),
     ...(workflowId === undefined ? {} : { workflowId }),
   };
 }
@@ -1480,17 +1486,6 @@ function formatInitSummary(
   return lines.join("\n");
 }
 
-function formatIssueSummary(result: Awaited<ReturnType<typeof createIssueWorkspace>>): string {
-  return [
-    `Created issue ${result.issue.id}.`,
-    `Type: ${result.issue.type}`,
-    `Workflow: ${result.issue.workflowId}`,
-    `Created files: ${result.createdFiles.join(", ")}`,
-    `Log: ${result.issue.logPath}`,
-    "Next: add issue context or move the issue through the workflow.",
-  ].join("\n");
-}
-
 function formatWorkflowCreateSummary(
   workflowId: string,
   workflowName: string,
@@ -1530,6 +1525,117 @@ function formatWorkflowValidationSummary(
     `Workflow validation failed for ${scope}.`,
     ...errors.map((error) => `- ${error}`),
   ].join("\n");
+}
+
+function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
+  const lines = [
+    `Category: ${analysis.category}`,
+    `Reason: ${analysis.reason}`,
+    `Clarification required: ${analysis.needsClarification ? "yes" : "no"}`,
+  ];
+
+  if (analysis.clarificationQuestions.length > 0) {
+    lines.push("Clarifying questions:");
+    for (const question of analysis.clarificationQuestions) {
+      lines.push(`- ${question}`);
+    }
+  }
+
+  if (analysis.issuePlan !== undefined) {
+    lines.push(`Primary issue: ${analysis.issuePlan.primaryIssue.title}`);
+    lines.push(`Primary workflow: ${analysis.issuePlan.primaryIssue.workflowId}`);
+    lines.push(`Child issues planned: ${analysis.issuePlan.childIssues.length}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatIssueSummary(result: Awaited<ReturnType<typeof createIssueWorkspace>>): string {
+  const lines = [
+    `Created issue ${result.issue.id}.`,
+    `Type: ${result.issue.type}`,
+    `Workflow: ${result.issue.workflowId}`,
+    `Created files: ${result.createdFiles.join(", ")}`,
+    `Log: ${result.issue.logPath}`,
+  ];
+
+  if (result.issue.parentIssueId !== undefined && result.issue.parentIssueId !== null) {
+    lines.push(`Parent: ${result.issue.parentIssueId}`);
+  }
+
+  if (result.issue.childIssueIds !== undefined && result.issue.childIssueIds.length > 0) {
+    lines.push(`Children: ${result.issue.childIssueIds.join(", ")}`);
+  }
+
+  if (result.issue.goal !== undefined) {
+    lines.push(`Goal: ${result.issue.goal}`);
+  }
+
+  lines.push("Next: add issue context or move the issue through the workflow.");
+  return lines.join("\n");
+}
+
+function formatRequestCreateSummary(input: {
+  readonly analysis: RequestAnalysis;
+  readonly parent: Awaited<ReturnType<typeof createIssueWorkspace>>;
+  readonly childIssues: readonly Awaited<ReturnType<typeof createIssueWorkspace>>[];
+}): string {
+  const lines = [
+    `Captured request as issue ${input.parent.issue.id}.`,
+    `Title: ${input.parent.issue.title}`,
+    `Type: ${input.parent.issue.type}`,
+    `Workflow: ${input.parent.issue.workflowId}`,
+    `Request: ${input.analysis.request}`,
+    `Log: ${input.parent.issue.logPath}`,
+    `Category: ${input.analysis.category}`,
+    `Reason: ${input.analysis.reason}`,
+  ];
+
+  if (input.childIssues.length > 0) {
+    lines.push(`Child issues: ${input.childIssues.map((issue) => issue.issue.id).join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatQuestionOrCasualSummary(analysis: RequestAnalysis): string {
+  const lines = [
+    "No issue created.",
+    `Category: ${analysis.category}`,
+    `Reason: ${analysis.reason}`,
+    `Request: ${analysis.request}`,
+  ];
+
+  if (analysis.clarificationQuestions.length > 0) {
+    lines.push("Clarifying questions:");
+    for (const question of analysis.clarificationQuestions) {
+      lines.push(`- ${question}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function buildFallbackIssuePlan(
+  analysis: RequestAnalysis,
+  issueType: (typeof issueTypeValues)[number],
+  workflowId: string,
+): IssuePlan {
+  return {
+    title: analysis.suggestedTitle,
+    type: issueType,
+    workflowId,
+    goal: analysis.reason,
+    acceptanceCriteria: [
+      `The request "${analysis.request}" is resolved.`,
+      "Evidence is recorded.",
+    ],
+    dependencies: [],
+    evidenceRequired: [
+      "Implementation or review evidence",
+      "Verification output",
+    ],
+  };
 }
 
 function formatDecisionSummary(input: {
@@ -1866,6 +1972,16 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
     workflow,
     force: command.force,
     ...(command.description === undefined ? {} : { description: command.description }),
+    goal: command.description ?? command.title,
+    acceptanceCriteria: [
+      `The issue "${command.title}" is resolved.`,
+      "Verification evidence is recorded.",
+    ],
+    dependencies: [],
+    evidenceRequired: [
+      "Implementation or review evidence",
+      "Verification output",
+    ],
   });
 
   return {
@@ -1876,27 +1992,97 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
 
 async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Promise<CliResult> {
   const rootDir = process.cwd();
+  const analysis = analyzeRequest(command.request);
+
+  if (!analysis.requiresIssue) {
+    return {
+      exitCode: 0,
+      output: [
+        formatQuestionOrCasualSummary(analysis),
+        "",
+        formatRequestAnalysisSummary(analysis),
+      ].join("\n"),
+    };
+  }
+
   await ensureInitializedProject(rootDir);
   const config = await readProjectConfig(rootDir);
-  const workflowId = command.workflowId ?? config.defaultWorkflows[command.type];
-  const workflow = await buildWorkflowDefinition(rootDir, workflowId);
-  const result = await createIssueWorkspace({
+  const issueType = command.type ?? analysis.issueType ?? "feature";
+  const workflowId = command.workflowId ?? analysis.workflowId ?? config.defaultWorkflows[issueType];
+  const effectiveWorkflow = await buildWorkflowDefinition(rootDir, workflowId);
+  const effectivePlan = analysis.issuePlan?.primaryIssue ?? buildFallbackIssuePlan(analysis, issueType, workflowId);
+  const primaryPlan: IssuePlan = {
+    ...effectivePlan,
+    type: issueType,
+    workflowId,
+  };
+  const nextSequence = await findNextIssueSequence(rootDir);
+  const childIssueIds = analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined
+    ? analysis.issuePlan.childIssues.map((child, index) => createIssueId(nextSequence + index + 1, child.title))
+    : [];
+  const decomposition = analysis.issuePlan === undefined
+    ? undefined
+    : {
+        parentIssueId: null,
+        parentIssueTitle: primaryPlan.title,
+        childIssues: analysis.issuePlan.childIssues,
+      };
+
+  const parentResult = await createIssueWorkspace({
     rootDir,
-    title: "Request",
-    type: command.type,
-    workflow,
+    title: primaryPlan.title,
+    type: primaryPlan.type,
+    workflow: effectiveWorkflow,
     force: command.force,
+    sequence: nextSequence,
     description: command.request,
+    goal: primaryPlan.goal,
+    acceptanceCriteria: primaryPlan.acceptanceCriteria,
+    dependencies: primaryPlan.dependencies,
+    evidenceRequired: primaryPlan.evidenceRequired,
+    childIssueIds,
+    ...(decomposition === undefined ? {} : { decomposition }),
   });
+
+  const createdChildIssues: Awaited<ReturnType<typeof createIssueWorkspace>>[] = [];
+  if (analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined) {
+    for (let index = 0; index < analysis.issuePlan.childIssues.length; index += 1) {
+      const childPlan = analysis.issuePlan.childIssues[index];
+      if (childPlan === undefined) {
+        continue;
+      }
+      const childSequence = nextSequence + index + 1;
+      const childWorkflow = await buildWorkflowDefinition(rootDir, childPlan.workflowId);
+      const childResult = await createIssueWorkspace({
+        rootDir,
+        title: childPlan.title,
+        type: childPlan.type,
+        workflow: childWorkflow,
+        force: command.force,
+        sequence: childSequence,
+        description: childPlan.goal,
+        parentIssueId: parentResult.issue.id,
+        goal: childPlan.goal,
+        acceptanceCriteria: childPlan.acceptanceCriteria,
+        dependencies: [parentResult.issue.id, ...childPlan.dependencies],
+        evidenceRequired: childPlan.evidenceRequired,
+        initialState: "blocked",
+      });
+
+      createdChildIssues.push(childResult);
+    }
+  }
 
   return {
     exitCode: 0,
     output: [
-      `Captured request as issue ${result.issue.id}.`,
-      `Type: ${result.issue.type}`,
-      `Workflow: ${result.issue.workflowId}`,
-      `Request: ${command.request}`,
-      `Log: ${result.issue.logPath}`,
+      formatRequestCreateSummary({
+      analysis,
+      parent: parentResult,
+      childIssues: createdChildIssues,
+      }),
+      "",
+      formatRequestAnalysisSummary(analysis),
     ].join("\n"),
   };
 }
@@ -2643,11 +2829,10 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     if (parsed.kind === "unsupported") {
       if (!parsed.command.startsWith("-")) {
         const request = [parsed.command, ...argv.slice(1)].join(" ").trim();
-        if (request.length > 0) {
+        if (request.length > 0 && isLikelyNaturalLanguageRequest(request)) {
           return runRequestCreateCommand({
             kind: "request:create",
             request,
-            type: "feature",
             force: false,
           });
         }
