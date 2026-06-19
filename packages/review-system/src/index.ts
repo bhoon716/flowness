@@ -13,7 +13,7 @@ import {
   issueTypeValues,
   pathExists,
   readTextFile,
-  resolveIssuePaths,
+  resolveExistingIssuePaths,
   reviewRoleValues,
   slugify,
   writeTextFile,
@@ -327,7 +327,7 @@ function renderReviewReportMarkdown(report: ReviewReport): string {
 }
 
 async function findNextReviewSequence(rootDir: string, issueId: string): Promise<number> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   if (!(await pathExists(paths.reviewsDir))) {
     return 1;
   }
@@ -346,7 +346,7 @@ export async function writeReviewReportToIssue(
   results: readonly ReviewResult[],
   force = false,
 ): Promise<ReviewReport> {
-  const paths = resolveIssuePaths(input.rootDir, input.issueId);
+  const paths = await resolveExistingIssuePaths(input.rootDir, input.issueId);
   await ensureDirectory(paths.reviewsDir);
   const coordinator = createReviewCoordinatorResult(results);
   const sequence = await findNextReviewSequence(input.rootDir, input.issueId);
@@ -376,7 +376,7 @@ export async function readReviewReports(
   rootDir: string,
   issueId: string,
 ): Promise<readonly string[]> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   if (!(await pathExists(paths.reviewsDir))) {
     return [];
   }
@@ -391,7 +391,7 @@ export async function readReviewReport(
   issueId: string,
   fileName: string,
 ): Promise<string | null> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   const reviewPath = `${paths.reviewsDir}/${fileName}`;
   if (!(await pathExists(reviewPath))) {
     return null;

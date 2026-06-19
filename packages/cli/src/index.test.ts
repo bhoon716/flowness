@@ -27,694 +27,161 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function listIssueDirectories(rootDir: string): Promise<readonly string[]> {
-  const entries = await readdir(join(rootDir, ".agent", "issues"));
-  return entries.filter((name) => name.startsWith("ISSUE-"));
+async function seedProject(rootDir: string): Promise<void> {
+  await mkdir(join(rootDir, "src"), { recursive: true });
+  await mkdir(join(rootDir, "docs"), { recursive: true });
+  await writeFile(join(rootDir, "package.json"), JSON.stringify({
+    name: "demo-project",
+    scripts: {
+      build: "tsc -b",
+      test: "vitest",
+      lint: "eslint .",
+    },
+  }, null, 2), "utf8");
+  await writeFile(join(rootDir, "README.md"), "# Demo Project\n", "utf8");
+  await writeFile(join(rootDir, "src", "index.ts"), "export {};\n", "utf8");
+  await writeFile(join(rootDir, "docs", "guide.md"), "# Guide\n", "utf8");
 }
 
-async function seedLegacyTicketWorkspace(rootDir: string, requestText: string): Promise<string> {
-  const legacyIssueId = "TICKET-001-LEGACY-SIGN-IN";
-  const issueDir = join(rootDir, ".agent", "issues", legacyIssueId);
-  const logDir = join(rootDir, ".agent", "logs");
-  const now = new Date().toISOString();
-
-  await mkdir(issueDir, { recursive: true });
-  await mkdir(logDir, { recursive: true });
-  await writeFile(join(issueDir, "issue.json"), JSON.stringify({
-    issue: {
-      id: legacyIssueId,
-      type: "feature",
-      title: "Legacy Sign In",
-      state: "open",
-      workflowId: "feature-development",
-      directory: legacyIssueId,
-      createdAt: now,
-      updatedAt: now,
-      logPath: `.agent/logs/${legacyIssueId}.md`,
-    },
-    description: requestText,
-    workflowState: {
-      workflowId: "feature-development",
-      currentStep: "Intake",
-      completedSteps: [],
-      failedSteps: [],
-      blocked: false,
-      updatedAt: now,
-      evidence: [],
-    },
-    workflowStatePath: join(issueDir, "workflow-state.json"),
-    logPath: `.agent/logs/${legacyIssueId}.md`,
-  }, null, 2), "utf8");
-  await writeFile(join(issueDir, "workflow-state.json"), JSON.stringify({
-    workflowId: "feature-development",
-    currentStep: "Intake",
-    completedSteps: [],
-    failedSteps: [],
-    blocked: false,
-    updatedAt: now,
-    evidence: [],
-  }, null, 2), "utf8");
-  await writeFile(join(logDir, `${legacyIssueId}.md`), [
-    `# ${legacyIssueId} Log`,
-    "",
-    `- Issue: Legacy Sign In`,
-    `- Log File: ${legacyIssueId}.md`,
-    "",
-    `## ${now}`,
-    "",
-    "- Step: Issue Created",
-    "- Actions:",
-    "  - Seeded a legacy ticket workspace for reuse.",
-    "- Evidence:",
-    "  - None",
-    "- Summary: Legacy ticket workspace seeded.",
-    "- Next Step: Intake",
-    "",
-  ].join("\n"), "utf8");
-
-  return legacyIssueId;
+async function issueDirectories(rootDir: string): Promise<readonly string[]> {
+  return (await readdir(join(rootDir, ".flowness", "issues"))).filter((name) => name.startsWith("ISSUE-"));
 }
 
-test("parseCommand handles init with options", () => {
-  const parsed = parseCommand(["init", "/tmp/demo", "--name", "demo-app", "--force"]);
-  assert.equal(parsed.kind, "init");
-  assert.equal(parsed.targetPath, "/tmp/demo");
-  assert.equal(parsed.projectName, "demo-app");
-  assert.equal(parsed.force, true);
+test("parseCommand handles the new direct aliases", () => {
+  const runCommand = parseCommand(["run", "회원가입 로그인 기능 만들어줘"]);
+  const stepCommand = parseCommand(["step", "--issue", "ISSUE-001-TEST"]);
+  const statusCommand = parseCommand(["status", "--issue", "ISSUE-001-TEST"]);
+  const evidenceCommand = parseCommand(["evidence:add", "--issue", "ISSUE-001-TEST", "--title", "README", "--location", "README.md"]);
+
+  assert.equal(runCommand.kind, "request:create");
+  assert.equal(stepCommand.kind, "workflow:step");
+  assert.equal(statusCommand.kind, "status");
+  assert.equal(evidenceCommand.kind, "evidence:add");
+  if (evidenceCommand.kind === "evidence:add") {
+    assert.equal(evidenceCommand.evidenceKind, "file");
+  }
 });
 
-test("runCli initializes a target directory", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-"));
+test("runCli initializes the .flowness workspace and keeps legacy dirs absent", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-init-"));
+  await seedProject(rootDir);
+
   const result = await runCli(["init", rootDir, "--name", "cli-project"]);
   assert.equal(result.exitCode, 0);
   assert.match(result.output, /Initialized Flowness project/);
+  assert.match(result.output, /Initialized a git repository/);
 
-  const config = await readFile(join(rootDir, ".flowness/config.yaml"), "utf8");
-  assert.match(config, /project_name: cli-project/);
+  assert.ok(await exists(join(rootDir, ".git")));
+  assert.ok(await exists(join(rootDir, ".flowness", "config", "project.yaml")));
+  assert.ok(await exists(join(rootDir, ".flowness", "project-profile.md")));
+  assert.ok(await exists(join(rootDir, ".flowness", "context-index.json")));
+  assert.ok(await exists(join(rootDir, ".flowness", "commands.json")));
+  assert.ok(await exists(join(rootDir, ".flowness", "harness-manifest.json")));
+  assert.equal(await exists(join(rootDir, ".agent")), false);
+  assert.equal(await exists(join(rootDir, ".codex")), false);
+
+  const commands = await readFile(join(rootDir, ".flowness", "commands.json"), "utf8");
+  assert.match(commands, /flowness run/);
+  assert.match(commands, /flowness status --issue ISSUE-ID/);
+  assert.match(commands, /flowness evidence:add/);
 });
 
-test("runCli captures a request as an issue", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-request-"));
+test("runCli routes requests through the new run alias and reuses matching issues", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-run-"));
+  await seedProject(rootDir);
+
   const initResult = await runCli(["init", rootDir, "--name", "request-project"]);
   assert.equal(initResult.exitCode, 0);
 
   await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli(["request:create", "로그인 기능을 만들어줘"]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Flowness analyzed this as a development task\./);
-    assert.match(result.output, /Created issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
-    assert.match(result.output, /Type: feature/);
-    assert.match(result.output, /Workflow: feature-development/);
-    assert.match(result.output, /Start with 01-intake\.md \/ clarification before implementation\./);
-    assert.match(result.output, /Implementation is blocked until clarification questions are answered\./);
-    assert.match(result.output, /Clarifying questions:/);
-    assert.match(result.output, /Option A:/);
-    assert.match(result.output, /Pros:/);
-    assert.match(result.output, /Cons:/);
-    assert.match(result.output, /Recommended default:/);
-    assert.match(result.output, /What I need from you:/);
-    assert.doesNotMatch(result.output, /TICKET-/);
-
-    const issueDirectories = await listIssueDirectories(rootDir);
-    assert.equal(issueDirectories.length, 1);
-  });
-});
-
-test("runCli leaves greetings as answers without issues", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-greeting-"));
-
-  const result = await withWorkingDirectory(rootDir, async () => runCli(["request:create", "안녕하세요"]));
-  assert.equal(result.exitCode, 0);
-  assert.match(result.output, /No issue created\./);
-  assert.match(result.output, /Category: casual_or_question/);
-  assert.match(result.output, /Normal response can continue\./);
-  assert.equal(await exists(join(rootDir, ".agent", "issues")), false);
-});
-
-test("runCli leaves casual questions as answers without issues", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-question-"));
-
-  const result = await withWorkingDirectory(rootDir, async () => runCli(["request:create", "지금 시간이 몇 시야?"]));
-  assert.equal(result.exitCode, 0);
-  assert.match(result.output, /No issue created\./);
-  assert.match(result.output, /Category: casual_or_question/);
-  assert.match(result.output, /Normal response can continue\./);
-  assert.equal(await exists(join(rootDir, ".agent", "issues")), false);
-});
-
-test("runCli routes MVP requests through the MVP planning workflow", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-mvp-"));
-  const initResult = await runCli(["init", rootDir, "--name", "mvp-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli(["request:create", "온보딩 MVP를 기획해줘"]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Flowness analyzed this as an MVP planning request\./);
-    assert.match(result.output, /Workflow: mvp-planning/);
-    assert.match(result.output, /Category: mvp_or_product_planning/);
-
-    const issueDirectories = await listIssueDirectories(rootDir);
-    assert.equal(issueDirectories.length, 1);
-  });
-});
-
-test("runCli decomposes multi issue requests into parent and child issues", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-multi-issue-"));
-  const initResult = await runCli(["init", rootDir, "--name", "multi-issue-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli([
-      "request:create",
-      "로그인 화면을 만들고; 비밀번호 재설정 페이지도 추가해줘; 알림 설정도 구현해줘",
-    ]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Category: multi_issue_project/);
-    assert.match(result.output, /Children:/);
-
-    const issueDirectories = await listIssueDirectories(rootDir);
-    assert.equal(issueDirectories.length, 4);
-
-    const parentIssueName = issueDirectories.find((name) => name.startsWith("ISSUE-001-"));
-    if (parentIssueName === undefined) {
-      throw new Error("Expected parent issue workspace to be created.");
-    }
-
-    const parentIssue = JSON.parse(await readFile(join(rootDir, ".agent", "issues", parentIssueName, "issue.json"), "utf8")) as {
-      issue: { childIssueIds?: readonly string[] };
-    };
-    assert.ok(parentIssue.issue.childIssueIds !== undefined);
-    assert.equal(parentIssue.issue.childIssueIds?.length, 3);
-
-    const decomposition = JSON.parse(await readFile(join(rootDir, ".agent", "issues", parentIssueName, "decomposition.json"), "utf8")) as {
-      childIssues: readonly unknown[];
-    };
-    assert.equal(decomposition.childIssues.length, 3);
-  });
-});
-
-test("runCli auto-captures freeform requests as issues", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-request-auto-"));
-  const initResult = await runCli(["init", rootDir, "--name", "request-auto-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli(["로그인", "기능을", "만들어줘"]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Flowness analyzed this as a development task\./);
-    assert.match(result.output, /Created issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
-    assert.match(result.output, /Workflow: feature-development/);
-  });
-});
-
-test("runCli reuses an existing issue for the same request", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-request-reuse-"));
-  const initResult = await runCli(["init", rootDir, "--name", "request-reuse-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const firstResult = await runCli(["request:create", "회원가입 로그인 기능 만들어줘"]);
+    const firstResult = await runCli(["run", "회원가입 로그인 기능 만들어줘"]);
     assert.equal(firstResult.exitCode, 0);
-    assert.match(firstResult.output, /Created issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
+    assert.match(firstResult.output, /Flowness analyzed this as a development task\./);
+    assert.match(firstResult.output, /Created issue ISSUE-001-SIGNUP-LOGIN and routed it to feature-development\./);
+    assert.match(firstResult.output, /Workflow: feature-development/);
+    assert.match(firstResult.output, /Implementation is blocked until clarification questions are answered\./);
 
     const secondResult = await runCli(["request:create", "회원가입 로그인 기능 만들어줘"]);
     assert.equal(secondResult.exitCode, 0);
-    assert.match(secondResult.output, /Reused existing issue ISSUE-001-[A-Z0-9-]+ and routed it to feature-development\./);
+    assert.match(secondResult.output, /Reused existing issue ISSUE-001-SIGNUP-LOGIN and routed it to feature-development\./);
 
-    const issueDirectories = await listIssueDirectories(rootDir);
-    assert.equal(issueDirectories.length, 1);
+    const directories = await issueDirectories(rootDir);
+    assert.deepEqual(directories, ["ISSUE-001-SIGNUP-LOGIN"]);
   });
 });
 
-test("runCli reuses legacy TICKET workspaces without creating new ISSUE workspaces", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-legacy-ticket-"));
-  const initResult = await runCli(["init", rootDir, "--name", "legacy-ticket-project"]);
-  assert.equal(initResult.exitCode, 0);
+test("runCli status, evidence, and step commands block manual state mismatches", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-state-"));
+  await seedProject(rootDir);
 
-  const legacyRequest = "회원가입 로그인 기능 만들어줘";
-  await seedLegacyTicketWorkspace(rootDir, legacyRequest);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli(["request:create", legacyRequest]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Reused existing issue TICKET-001-LEGACY-SIGN-IN and routed it to feature-development\./);
-    assert.doesNotMatch(result.output, /TICKET-[0-9]{3}-LEGACY-SIGN-IN.*Created issue/);
-    assert.equal((await readdir(join(rootDir, ".agent", "issues"))).filter((name) => name.startsWith("ISSUE-")).length, 0);
-  });
-});
-
-test("runCli applies human gate instructions from natural language", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-config-"));
-  const initResult = await runCli(["init", rootDir, "--name", "config-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli(["config:gate", "설계는 항상 물어봐"]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Updated human gate configuration/);
-  });
-
-  const config = await readFile(join(rootDir, ".flowness/config.yaml"), "utf8");
-  assert.match(config, /design: always/);
-});
-
-test("runCli creates an issue workspace and initial log", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-issue-"));
-  const initResult = await runCli(["init", rootDir, "--name", "issue-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli(["issue:create", "--title", "Sign in", "--type", "feature"]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Created issue ISSUE-001-SIGN-IN/);
-
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
-      throw new Error("Expected issue workspace to be created.");
-    }
-
-    const issueMarkdown = await readFile(join(rootDir, ".agent/issues", issueName, "issue.md"), "utf8");
-    assert.match(issueMarkdown, /Workflow: feature/);
-    assert.match(issueMarkdown, /Workflow State:/);
-
-    const reviewReadme = await readFile(join(rootDir, ".agent/issues", issueName, "reviews", "README.md"), "utf8");
-    assert.match(reviewReadme, /Review reports/);
-
-    const logMarkdown = await readFile(join(rootDir, ".agent/logs", `${issueName}.md`), "utf8");
-    assert.match(logMarkdown, /Issue Created/);
-    assert.match(logMarkdown, /Selected workflow feature/);
-  });
-});
-
-test("runCli advances workflows, records decisions, and runs reviews", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-runtime-"));
-  const initResult = await runCli(["init", rootDir, "--name", "runtime-project"]);
+  const initResult = await runCli(["init", rootDir, "--name", "state-project"]);
   assert.equal(initResult.exitCode, 0);
 
   await withWorkingDirectory(rootDir, async () => {
     const issueResult = await runCli(["issue:create", "--title", "Sign in", "--type", "feature"]);
     assert.equal(issueResult.exitCode, 0);
 
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
+    const [issueName] = await issueDirectories(rootDir);
+    if (issueName === undefined) {
       throw new Error("Expected issue workspace to be created.");
     }
 
-    const pendingStep = await runCli(["workflow:step", "--issue", issueName]);
-    assert.equal(pendingStep.exitCode, 1);
-    assert.match(pendingStep.output, /waiting_approval/);
+    const statusResult = await runCli(["status", "--issue", issueName]);
+    assert.equal(statusResult.exitCode, 0);
+    assert.match(statusResult.output, /Layout: flowness/);
+    assert.match(statusResult.output, /Current step: Intake/);
 
-    const approvedStep = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(approvedStep.exitCode, 0);
-    assert.match(approvedStep.output, /Workflow step completed/);
+    const evidenceResult = await runCli(["evidence:add", "--issue", issueName, "--title", "Repository README", "--location", "README.md"]);
+    assert.equal(evidenceResult.exitCode, 0);
+    assert.match(evidenceResult.output, /Recorded evidence for/);
+    assert.match(evidenceResult.output, /Kind: file/);
 
-    const workflowState = JSON.parse(await readFile(join(rootDir, ".agent/issues", issueName, "workflow-state.json"), "utf8")) as { currentStep: string };
-    assert.equal(workflowState.currentStep, "Clarifying Questions");
-
-    const decisionResult = await runCli([
-      "decision:create",
-      "--issue",
-      issueName,
-      "--title",
-      "Auth strategy",
-      "--context",
-      "Choose the session strategy.",
-      "--decision",
-      "Use server sessions.",
-      "--alternatives",
-      "JWT,session",
-      "--consequences",
-      "csrf mitigation,stateful auth",
-    ]);
-    assert.equal(decisionResult.exitCode, 0);
-    assert.match(decisionResult.output, /Created decision/);
-
-    const decisionEntries = await readdir(join(rootDir, ".agent/issues", issueName, "decisions"));
-    const decisionFile = decisionEntries.find((name) => name.startsWith("DEC-001-"));
-    if (!decisionFile) {
-      throw new Error("Expected a decision document to be created.");
-    }
-
-    const reviewResult = await runCli(["review:run", "--issue", issueName]);
-    assert.equal(reviewResult.exitCode, 1);
-    assert.match(reviewResult.output, /Blocking roles: Testing Reviewer/);
-
-    const reviewEntries = await readdir(join(rootDir, ".agent/issues", issueName, "reviews"));
-    const reviewFile = reviewEntries.find((name) => name.startsWith("REVIEW-001-"));
-    if (!reviewFile) {
-      throw new Error("Expected a review report to be created.");
-    }
-
-    const reviewMarkdown = await readFile(join(rootDir, ".agent/issues", issueName, "reviews", reviewFile), "utf8");
-    assert.match(reviewMarkdown, /Testing Reviewer/);
-    assert.match(reviewMarkdown, /Status: fail/);
-  });
-});
-
-test("runCli blocks workflow progression when workflow state advances without a matching log entry", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-state-log-"));
-  const initResult = await runCli(["init", rootDir, "--name", "state-log-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const issueResult = await runCli(["issue:create", "--title", "State log check", "--type", "feature"]);
-    assert.equal(issueResult.exitCode, 0);
-
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
-      throw new Error("Expected issue workspace to be created.");
-    }
-
-    const firstStep = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
+    const firstStep = await runCli(["step", "--issue", issueName, "--approve"]);
     assert.equal(firstStep.exitCode, 0);
+    assert.match(firstStep.output, /Workflow step completed for/);
 
-    const workflowStatePath = join(rootDir, ".agent/issues", issueName, "workflow-state.json");
+    const workflowStatePath = join(rootDir, ".flowness", "issues", issueName, "workflow-state.json");
     const workflowState = JSON.parse(await readFile(workflowStatePath, "utf8")) as { currentStep: string; updatedAt: string };
     workflowState.currentStep = "Implementation";
     workflowState.updatedAt = "2026-06-19T00:10:00.000Z";
     await writeFile(workflowStatePath, `${JSON.stringify(workflowState, null, 2)}\n`, "utf8");
 
-    const blocked = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(blocked.exitCode, 1);
-    assert.match(blocked.output, /State\/log mismatch detected/);
-    assert.match(blocked.output, /Recovery:/);
+    const blockedStep = await runCli(["step", "--issue", issueName, "--approve"]);
+    assert.equal(blockedStep.exitCode, 1);
+    assert.match(blockedStep.output, /State\/log mismatch detected/);
+    assert.match(blockedStep.output, /Recovery:/);
+
+    const blockedStatus = await runCli(["status", "--issue", issueName]);
+    assert.equal(blockedStatus.exitCode, 1);
+    assert.match(blockedStatus.output, /State\/log mismatch detected/);
   });
 });
 
-test("runCli detects log and state mismatches when the log advances without matching state", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-log-state-"));
-  const initResult = await runCli(["init", rootDir, "--name", "log-state-project"]);
-  assert.equal(initResult.exitCode, 0);
+test("runCli warns when legacy .agent workspace files are present", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-legacy-"));
+  await seedProject(rootDir);
+  await mkdir(join(rootDir, ".agent"), { recursive: true });
 
-  await withWorkingDirectory(rootDir, async () => {
-    const issueResult = await runCli(["issue:create", "--title", "Log state check", "--type", "feature"]);
-    assert.equal(issueResult.exitCode, 0);
-
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
-      throw new Error("Expected issue workspace to be created.");
-    }
-
-    const firstStep = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(firstStep.exitCode, 0);
-
-    const logPath = join(rootDir, ".agent/logs", `${issueName}.md`);
-    const existingLog = await readFile(logPath, "utf8");
-    await writeFile(logPath, [
-      existingLog.trimEnd(),
-      "",
-      "## 2026-06-19T00:11:00.000Z",
-      "",
-      "- Step: Manual Log Advance",
-      "- Actions:",
-      "  - Simulated log advance.",
-      "- Evidence:",
-      "  - None",
-      "- Summary: Simulated log advance.",
-      "- Next Step: Implementation",
-      "",
-    ].join("\n"), "utf8");
-
-    const blocked = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(blocked.exitCode, 1);
-    assert.match(blocked.output, /State\/log mismatch detected/);
-    assert.match(blocked.output, /Recovery:/);
-  });
+  const result = await runCli(["init", rootDir, "--name", "legacy-project"]);
+  assert.equal(result.exitCode, 0);
+  assert.match(result.output, /Legacy \.agent workspace files were detected/);
+  assert.ok(await exists(join(rootDir, ".flowness", "config", "project.yaml")));
 });
 
-test("runCli blocks close until Evidence Review is logged", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-evidence-review-"));
-  const initResult = await runCli(["init", rootDir, "--name", "evidence-review-project"]);
-  assert.equal(initResult.exitCode, 0);
+test("runCli creates and validates workflow scaffolds", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-workflow-"));
+  await seedProject(rootDir);
 
-  await withWorkingDirectory(rootDir, async () => {
-    const createWorkflow = await runCli(["workflow:create", "close-check", "--name", "Close Check"]);
-    assert.equal(createWorkflow.exitCode, 0);
-
-    const workflowPath = join(rootDir, ".agent/workflows/close-check/workflow.ts");
-    await writeFile(workflowPath, [
-      'import { defineWorkflow } from "@flowness-labs/workflow-engine";',
-      'import { joinPaths, pathExists } from "@flowness-labs/core";',
-      '',
-      'export default defineWorkflow({',
-      '  id: "close-check",',
-      '  name: "Close Check",',
-      '  steps: [',
-      '    {',
-      '      name: "Implementation",',
-      '      preconditions: [],',
-      '      successConditions: ["Implementation proof exists."],',
-      '      next: "Close",',
-      '      execute: async (context) => {',
-      '        const proofPath = joinPaths(context.rootDir, "implementation-proof.md");',
-      '        if (!(await pathExists(proofPath))) {',
-      '          throw new Error("Missing implementation proof");',
-      '        }',
-      '        return {',
-      '          summary: "Implementation proof found.",',
-      '          evidence: [',
-      '            { kind: "file", title: "implementation-proof.md", location: proofPath, detail: "Implementation proof." },',
-      '          ],',
-      '          nextStep: "Close",',
-      '        };',
-      '      },',
-      '    },',
-      '    {',
-      '      name: "Close",',
-      '      preconditions: [\'"Implementation" has completed.\'],',
-      '      successConditions: ["Close proof exists."],',
-      '      next: null,',
-      '      execute: async (context) => {',
-      '        const proofPath = joinPaths(context.rootDir, "close-proof.md");',
-      '        if (!(await pathExists(proofPath))) {',
-      '          throw new Error("Missing close proof");',
-      '        }',
-      '        return {',
-      '          summary: "Close proof found.",',
-      '          evidence: [',
-      '            { kind: "file", title: "close-proof.md", location: proofPath, detail: "Close proof." },',
-      '          ],',
-      '          nextStep: null,',
-      '        };',
-      '      },',
-      '    },',
-      '  ],',
-      '});',
-      '',
-    ].join("\n"), "utf8");
-
-    await writeFile(join(rootDir, "implementation-proof.md"), "# Implementation proof\n", "utf8");
-    await writeFile(join(rootDir, "close-proof.md"), "# Close proof\n", "utf8");
-
-    const issueResult = await runCli(["issue:create", "--title", "Close proof check", "--type", "feature", "--workflow", "close-check"]);
-    assert.equal(issueResult.exitCode, 0);
-
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
-      throw new Error("Expected issue workspace to be created.");
-    }
-
-    const implementationResult = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(implementationResult.exitCode, 0);
-    assert.match(implementationResult.output, /Next step: Close/);
-
-    const closeResult = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(closeResult.exitCode, 1);
-    assert.match(closeResult.output, /Evidence Review is required before Close/);
-    assert.match(closeResult.output, /Recovery:/);
-  });
-});
-
-test("runCli creates skill and rule scaffolds and validates the workspace", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-asset-"));
-  const initResult = await runCli(["init", rootDir, "--name", "asset-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const skillResult = await runCli(["skill:create", "--id", "root-cause-analysis", "--title", "Root Cause Analysis", "--description", "Find why a workflow failed"]);
-    assert.equal(skillResult.exitCode, 0);
-    assert.match(skillResult.output, /Created skill scaffold/);
-
-    const ruleResult = await runCli(["rule:create", "--id", "testing", "--title", "Testing", "--description", "Always write tests"]);
-    assert.equal(ruleResult.exitCode, 0);
-    assert.match(ruleResult.output, /Created rule/);
-
-    const issueResult = await runCli(["issue:create", "--title", "Skill issue", "--type", "feature"]);
-    assert.equal(issueResult.exitCode, 0);
-
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
-      throw new Error("Expected issue workspace to be created.");
-    }
-
-    const skillRun = await runCli(["skill:run", "--id", "root-cause-analysis", "--issue", issueName, "--input", "Find the root cause"]);
-    assert.equal(skillRun.exitCode, 0);
-    assert.match(skillRun.output, /Executed skill root-cause-analysis/);
-
-    const ruleApply = await runCli(["rule:apply", "--id", "testing", "--issue", issueName, "--input", "Always write tests"]);
-    assert.equal(ruleApply.exitCode, 0);
-    assert.match(ruleApply.output, /Applied rule testing/);
-
-    const skillList = await runCli(["skill:list"]);
-    assert.equal(skillList.exitCode, 0);
-    assert.match(skillList.output, /root-cause-analysis/);
-
-    const ruleList = await runCli(["rule:list"]);
-    assert.equal(ruleList.exitCode, 0);
-    assert.match(ruleList.output, /testing/);
-
-    const skillMarkdown = await readFile(join(rootDir, ".agent/skills/root-cause-analysis/SKILL.md"), "utf8");
-    assert.match(skillMarkdown, /Root Cause Analysis/);
-
-    const ruleMarkdown = await readFile(join(rootDir, ".agent/rules/testing.md"), "utf8");
-    assert.match(ruleMarkdown, /Always write tests/);
-
-    const validateResult = await runCli(["validate"]);
-    assert.equal(validateResult.exitCode, 0);
-    assert.match(validateResult.output, /Workflow validation passed/);
-
-    const logMarkdown = await readFile(join(rootDir, ".agent/logs", `${issueName}.md`), "utf8");
-    assert.match(logMarkdown, /Skill Executed/);
-    assert.match(logMarkdown, /Rule Applied/);
-
-    const upgradeResult = await runCli(["upgrade"]);
-    assert.equal(upgradeResult.exitCode, 0);
-    assert.match(upgradeResult.output, /Upgraded Flowness project/);
-  });
-});
-
-test("runCli creates and validates a workflow scaffold", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-workflow-"));
   const initResult = await runCli(["init", rootDir, "--name", "workflow-project"]);
   assert.equal(initResult.exitCode, 0);
 
   await withWorkingDirectory(rootDir, async () => {
-    const createResult = await runCli(["workflow:create", "feature-development", "--name", "Feature Development"]);
+    const createResult = await runCli(["workflow:create", "custom-flow", "--name", "Custom Flow"]);
     assert.equal(createResult.exitCode, 0);
-    assert.match(createResult.output, /Created workflow scaffold feature-development/);
+    assert.match(createResult.output, /Created workflow scaffold custom-flow \(Custom Flow\)\./);
 
-    const workflowSource = await readFile(
-      join(rootDir, ".agent/workflows", "feature-development", "workflow.ts"),
-      "utf8",
-    );
-    assert.match(workflowSource, /defineWorkflow/);
-
-    const validateResult = await runCli(["workflow:validate", "feature-development"]);
+    const validateResult = await runCli(["workflow:validate", "custom-flow"]);
     assert.equal(validateResult.exitCode, 0);
-    assert.match(validateResult.output, /Workflow validation passed/);
-  });
-});
-
-test("runCli loads custom workflow files when creating issues", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-custom-workflow-"));
-  const initResult = await runCli(["init", rootDir, "--name", "custom-workflow-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const createWorkflow = await runCli(["workflow:create", "custom-flow", "--name", "Custom Flow"]);
-    assert.equal(createWorkflow.exitCode, 0);
-
-    const workflowPath = join(rootDir, ".agent/workflows/custom-flow/workflow.ts");
-    const originalWorkflow = await readFile(workflowPath, "utf8");
-    await writeFile(
-      workflowPath,
-      originalWorkflow.replace('name: "Intake"', 'name: "Discovery"'),
-      "utf8",
-    );
-
-    const issueResult = await runCli(["issue:create", "--title", "Custom issue", "--type", "feature", "--workflow", "custom-flow"]);
-    assert.equal(issueResult.exitCode, 0);
-
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
-      throw new Error("Expected issue workspace to be created.");
-    }
-
-    const workflowState = JSON.parse(await readFile(join(rootDir, ".agent/issues", issueName, "workflow-state.json"), "utf8")) as { currentStep: string };
-    assert.equal(workflowState.currentStep, "Discovery");
-
-    const stepResult = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(stepResult.exitCode, 0);
-    assert.match(stepResult.output, /Next step: Clarification/);
-  });
-});
-
-test("runCli recover command retries a fixed workflow step", async () => {
-  const rootDir = await mkdtemp(join(tmpdir(), "flowness-recover-"));
-  const initResult = await runCli(["init", rootDir, "--name", "recover-project"]);
-  assert.equal(initResult.exitCode, 0);
-
-  await withWorkingDirectory(rootDir, async () => {
-    const createWorkflow = await runCli(["workflow:create", "recover-flow", "--name", "Recover Flow"]);
-    assert.equal(createWorkflow.exitCode, 0);
-
-    const workflowPath = join(rootDir, ".agent/workflows/recover-flow/workflow.ts");
-    await writeFile(
-      workflowPath,
-      [
-        'import { defineWorkflow } from "@flowness-labs/workflow-engine";',
-        'import { joinPaths, pathExists } from "@flowness-labs/core";',
-        '',
-        'export default defineWorkflow({',
-        '  id: "recover-flow",',
-        '  name: "Recover Flow",',
-        '  steps: [',
-        '    {',
-        '      name: "Close",',
-        '      preconditions: [],',
-        '      successConditions: ["Ready file exists."],',
-        '      next: null,',
-        '      execute: async (context) => {',
-        '        const readyPath = joinPaths(context.rootDir, "ready.txt");',
-        '        if (!(await pathExists(readyPath))) {',
-        '          throw new Error("Not ready yet");',
-        '        }',
-        '        return {',
-        '          summary: "Ready file found.",',
-        '          evidence: [',
-        '            { kind: "file", title: "ready.txt", location: readyPath, detail: "Ready to close." },',
-        '          ],',
-        '          nextStep: null,',
-        '        };',
-        '      },',
-        '    },',
-        '  ],',
-        '});',
-        '',
-      ].join("\n"),
-      "utf8",
-    );
-
-    const issueResult = await runCli(["issue:create", "--title", "Recover doc", "--type", "documentation", "--workflow", "recover-flow"]);
-    assert.equal(issueResult.exitCode, 0);
-
-    const issueEntries = await readdir(join(rootDir, ".agent/issues"));
-    const issueName = issueEntries.find((name) => name.startsWith("ISSUE-001-"));
-    if (!issueName) {
-      throw new Error("Expected issue workspace to be created.");
-    }
-
-    const failedStep = await runCli(["workflow:step", "--issue", issueName, "--approve"]);
-    assert.equal(failedStep.exitCode, 1);
-    assert.match(failedStep.output, /blocked|waiting_approval/i);
-
-    await writeFile(join(rootDir, "ready.txt"), "ready\n", "utf8");
-
-    const recoverResult = await runCli(["workflow:recover", "--issue", issueName, "--root-cause", "Ready file was missing"]);
-    assert.equal(recoverResult.exitCode, 0);
-    assert.match(recoverResult.output, /Recorded recovery loop/);
-    assert.match(recoverResult.output, /Workflow step completed/);
-
-    const workflowState = JSON.parse(await readFile(join(rootDir, ".agent/issues", issueName, "workflow-state.json"), "utf8")) as { currentStep: string; blocked: boolean };
-    assert.equal(workflowState.blocked, false);
-    assert.equal(workflowState.currentStep, "");
+    assert.match(validateResult.output, /Workflow validation passed for custom-flow\./);
   });
 });

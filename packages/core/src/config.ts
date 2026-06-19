@@ -4,7 +4,7 @@ import type {
   IssueType,
   ReviewRole,
 } from "./types.js";
-import { pathExists, readTextFile, writeTextFile } from "./filesystem.js";
+import { joinPaths, pathExists, readTextFile, writeTextFile } from "./filesystem.js";
 import { resolveWorkspacePaths } from "./workspace.js";
 import { reviewRoleValues } from "./types.js";
 
@@ -357,12 +357,29 @@ export async function readProjectConfig(
   rootDir: string,
 ): Promise<FlownessProjectConfig> {
   const paths = resolveWorkspacePaths(rootDir);
-  if (!(await pathExists(paths.configPath))) {
+  const legacyCandidates = [
+    paths.legacyConfigPath,
+    joinPaths(rootDir, ".agent", "config", "project.yaml"),
+  ];
+  const candidates = [paths.configPath, ...legacyCandidates];
+  const existingConfigPath = await findExistingPath(candidates);
+
+  if (existingConfigPath === null) {
     return createDefaultProjectConfig(rootDir.split(/[/\\]/).filter(Boolean).at(-1) ?? "flowness");
   }
 
-  const text = await readTextFile(paths.configPath);
+  const text = await readTextFile(existingConfigPath);
   return parseProjectConfigYaml(text, rootDir.split(/[/\\]/).filter(Boolean).at(-1) ?? "flowness");
+}
+
+async function findExistingPath(candidates: readonly string[]): Promise<string | null> {
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 export async function writeProjectConfig(

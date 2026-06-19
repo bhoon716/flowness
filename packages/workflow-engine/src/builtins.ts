@@ -6,6 +6,7 @@ import type {
   WorkflowStepDefinition,
 } from "@flowness-labs/core";
 import { joinPaths, pathExists, resolveIssuePaths } from "@flowness-labs/core";
+import { runCommitWorkflowStep } from "./commit.js";
 
 export interface WorkflowStepBlueprint {
   readonly name: string;
@@ -34,6 +35,7 @@ const builtinWorkflowBlueprints: readonly WorkflowBlueprint[] = [
       "Architecture",
       "Roadmap",
       "Issue Generation",
+      "Commit",
     ],
   },
   {
@@ -47,6 +49,7 @@ const builtinWorkflowBlueprints: readonly WorkflowBlueprint[] = [
       "Implementation",
       "Validation",
       "Release Candidate",
+      "Commit",
     ],
   },
   {
@@ -60,6 +63,7 @@ const builtinWorkflowBlueprints: readonly WorkflowBlueprint[] = [
       "MVP Planning",
       "Backlog Generation",
       "Issue Generation",
+      "Commit",
     ],
   },
   {
@@ -72,6 +76,7 @@ const builtinWorkflowBlueprints: readonly WorkflowBlueprint[] = [
       "Recommendation",
       "Decision",
       "Documentation",
+      "Commit",
     ],
   },
   {
@@ -97,6 +102,7 @@ const builtinWorkflowBlueprints: readonly WorkflowBlueprint[] = [
       "Fix",
       "Review",
       "Documentation",
+      "Commit",
       "Close",
     ],
   },
@@ -109,6 +115,7 @@ const builtinWorkflowBlueprints: readonly WorkflowBlueprint[] = [
       "Refactor",
       "Review",
       "Documentation",
+      "Commit",
       "Close",
     ],
   },
@@ -122,6 +129,7 @@ const builtinWorkflowBlueprints: readonly WorkflowBlueprint[] = [
       "Validation",
       "Review",
       "Documentation",
+      "Commit",
       "Close",
     ],
   },
@@ -230,6 +238,14 @@ function createWorkflowStep(
   humanGate?: GateMode,
 ): WorkflowStepDefinition {
   const stepName = step.name;
+  const execute = stepName === "Commit"
+    ? async (context: WorkflowStepContext) => runCommitWorkflowStep(context, workflowName)
+    : async (context: WorkflowStepContext) => ({
+        summary: `Prepared ${workflowName} step "${stepName}".`,
+        evidence: await collectDefaultStepEvidence(context, workflowName, stepName),
+        nextStep,
+      });
+
   return {
     name: stepName,
     preconditions: step.preconditions ?? (previousStep === null
@@ -241,11 +257,7 @@ function createWorkflowStep(
     ],
     humanGate: step.humanGate ?? humanGate ?? "never",
     next: nextStep,
-    execute: async (context) => ({
-      summary: `Prepared ${workflowName} step "${stepName}".`,
-      evidence: await collectDefaultStepEvidence(context, workflowName, stepName),
-      nextStep,
-    }),
+    execute,
   };
 }
 
@@ -343,11 +355,15 @@ function renderStepSource(workflowName: string, step: WorkflowStepDefinition): s
 
   properties.push(
     `      next: ${nextStep},`,
-    "      execute: async (context) => ({",
-    `        summary: "Prepared ${escapeTsString(step.name)} step scaffold.",`,
-    `        evidence: await collectDefaultStepEvidence(context, "${escapeTsString(workflowName)}", "${escapeTsString(step.name)}"),`,
-    `        nextStep: ${nextStep},`,
-    "      }),",
+    step.name === "Commit"
+      ? `      execute: async (context) => runCommitWorkflowStep(context, "${escapeTsString(workflowName)}"),`
+      : [
+          "      execute: async (context) => ({",
+          `        summary: "Prepared ${escapeTsString(workflowName)} step scaffold.",`,
+          `        evidence: await collectDefaultStepEvidence(context, "${escapeTsString(workflowName)}", "${escapeTsString(step.name)}"),`,
+          `        nextStep: ${nextStep},`,
+          "      }),",
+        ].join("\n"),
   );
 
   return [
@@ -360,6 +376,7 @@ function renderStepSource(workflowName: string, step: WorkflowStepDefinition): s
 export function renderWorkflowScaffoldSource(workflow: WorkflowDefinition): string {
   return [
     'import { defineWorkflow } from "@flowness-labs/workflow-engine";',
+    'import { runCommitWorkflowStep } from "@flowness-labs/workflow-engine";',
     'import { joinPaths, pathExists, resolveIssuePaths } from "@flowness-labs/core";',
     "",
     "async function collectDefaultStepEvidence(context, workflowName, stepName) {",

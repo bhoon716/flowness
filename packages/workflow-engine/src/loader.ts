@@ -21,7 +21,7 @@ import {
 import {
   pathExists,
   readTextFile,
-  resolveIssuePaths,
+  resolveExistingIssuePaths,
   resolveWorkflowScaffoldPaths,
 } from "@flowness-labs/core";
 
@@ -233,7 +233,7 @@ async function collectMarkdownWorkflowEvidence(
   workflowName: string,
   stepName: string,
 ): Promise<readonly EvidenceRecord[]> {
-  const issuePaths = resolveIssuePaths(context.rootDir, context.issueId);
+  const issuePaths = await resolveExistingIssuePaths(context.rootDir, context.issueId);
   const candidates: Array<[string, string]> = [
     [issuePaths.issueFile, "issue.md"],
     [issuePaths.issueJsonFile, "issue.json"],
@@ -401,6 +401,7 @@ export async function loadWorkflowDefinitionFromWorkspace(
   workflowId: string,
 ): Promise<WorkflowDefinition | undefined> {
   const workflowPaths = resolveWorkflowScaffoldPaths(rootDir, workflowId);
+  const legacyWorkflowDir = join(rootDir, ".agent", "workflows", workflowId);
   const candidates = [
     workflowPaths.workflowFile,
     join(workflowPaths.workflowDir, "workflow.js"),
@@ -409,6 +410,13 @@ export async function loadWorkflowDefinitionFromWorkspace(
     join(workflowPaths.workflowDir, "workflow.tsx"),
     join(workflowPaths.workflowDir, "workflow.py"),
     join(workflowPaths.workflowDir, "workflow.sh"),
+    join(legacyWorkflowDir, "workflow.js"),
+    join(legacyWorkflowDir, "workflow.mjs"),
+    join(legacyWorkflowDir, "workflow.cjs"),
+    join(legacyWorkflowDir, "workflow.ts"),
+    join(legacyWorkflowDir, "workflow.tsx"),
+    join(legacyWorkflowDir, "workflow.py"),
+    join(legacyWorkflowDir, "workflow.sh"),
   ];
 
   for (const candidate of candidates) {
@@ -423,6 +431,14 @@ export async function loadWorkflowDefinitionFromWorkspace(
   );
   if (markdownWorkflow !== undefined) {
     return markdownWorkflow;
+  }
+
+  const legacyMarkdownWorkflow = await loadMarkdownWorkflowDefinitionFromWorkspace(
+    legacyWorkflowDir,
+    workflowId,
+  );
+  if (legacyMarkdownWorkflow !== undefined) {
+    return legacyMarkdownWorkflow;
   }
 
   return undefined;

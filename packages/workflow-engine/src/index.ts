@@ -24,6 +24,9 @@ export {
   runWorkflowStep,
 } from "./runtime.js";
 export {
+  runCommitWorkflowStep,
+} from "./commit.js";
+export {
   loadWorkflowDefinition,
   loadWorkflowDefinitionFromFile,
   loadWorkflowDefinitionFromWorkspace,

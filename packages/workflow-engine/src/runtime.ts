@@ -9,6 +9,7 @@ import type {
 } from "@flowness-labs/core";
 import { mergeEvidence, getNextWorkflowStep, defineWorkflow } from "./index.js";
 import { pathExists } from "@flowness-labs/core";
+import { runCommitWorkflowStep } from "./commit.js";
 
 export interface WorkflowStepRunInput {
   readonly workflow: WorkflowDefinition;
@@ -180,7 +181,9 @@ export async function runWorkflowStep(
   }
 
   try {
-    const result = await step.execute(input.context);
+    const result = step.name === "Commit"
+      ? await runCommitWorkflowStep(input.context, workflow.name)
+      : await step.execute(input.context);
 
     return await finalizeWorkflowStepRun({
       workflow,

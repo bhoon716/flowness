@@ -1,6 +1,6 @@
 import { appendTextFile, pathExists, readTextFile, writeTextFile } from "@flowness-labs/core";
 import type { EvidenceRecord, LogEntry } from "@flowness-labs/core";
-import { resolveIssuePaths } from "@flowness-labs/core";
+import { resolveExistingIssuePaths } from "@flowness-labs/core";
 
 export interface ParsedIssueLogEntry {
   readonly timestamp: string;
@@ -171,7 +171,7 @@ export async function readIssueLogEntries(
   rootDir: string,
   issueId: string,
 ): Promise<readonly ParsedIssueLogEntry[]> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   if (!(await pathExists(paths.logFile))) {
     return [];
   }
@@ -194,7 +194,7 @@ export async function appendLogEntryToIssue(
   issueTitle: string,
   entry: LogEntry,
 ): Promise<string> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   const exists = await pathExists(paths.logFile);
   const rendered = renderLogEntryMarkdown(entry);
 
@@ -215,7 +215,7 @@ export async function readIssueLogMarkdown(
   rootDir: string,
   issueId: string,
 ): Promise<string | null> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   if (!(await pathExists(paths.logFile))) {
     return null;
   }

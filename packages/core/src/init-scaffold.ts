@@ -65,8 +65,9 @@ const workflowSpecs: readonly WorkflowSpec[] = [
       { fileName: "03-requirement-analysis.md", title: "Requirement Analysis", purpose: "Identify the users, problem, goals, constraints, and risks behind the request.", humanGate: "always", next: "Scope Definition" },
       { fileName: "04-scope-definition.md", title: "Scope Definition", purpose: "Draw the line around the requested work and call out the non-goals.", humanGate: "always", next: "Implementation" },
       { fileName: "05-implementation.md", title: "Implementation", purpose: "Make the code or documentation change using the confirmed plan.", humanGate: "never", next: "Evidence Review" },
-      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Run the relevant commands and collect proof that the change works.", humanGate: "optional", next: "Close" },
-      { fileName: "07-close.md", title: "Close", purpose: "Summarize the final state, remaining risks, and any follow-up work.", humanGate: "never", next: null },
+      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Run the relevant commands and collect proof that the change works.", humanGate: "optional", next: "Commit" },
+      { fileName: "07-commit.md", title: "Commit", purpose: "Inspect git state, stage the intended files, and create the final commit.", humanGate: "never", next: "Close" },
+      { fileName: "08-close.md", title: "Close", purpose: "Summarize the final state, remaining risks, and any follow-up work.", humanGate: "never", next: null },
     ],
   },
   {
@@ -80,8 +81,9 @@ const workflowSpecs: readonly WorkflowSpec[] = [
       { fileName: "03-scope-definition.md", title: "Scope Definition", purpose: "Define what is in scope, what is out of scope, and what evidence matters.", humanGate: "always", next: "Diff Review" },
       { fileName: "04-diff-review.md", title: "Diff Review", purpose: "Inspect the diff against the request and look for regressions or missing tests.", humanGate: "always", next: "Findings Synthesis" },
       { fileName: "05-findings-synthesis.md", title: "Findings Synthesis", purpose: "Turn raw observations into blocking and non-blocking findings.", humanGate: "never", next: "Evidence Review" },
-      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Check that every finding points to concrete evidence.", humanGate: "optional", next: "Close" },
-      { fileName: "07-close.md", title: "Close", purpose: "Close the review with a clear recommendation or follow-up issue list.", humanGate: "never", next: null },
+      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Check that every finding points to concrete evidence.", humanGate: "optional", next: "Commit" },
+      { fileName: "07-commit.md", title: "Commit", purpose: "Inspect git state, stage the intended files, and create the final commit.", humanGate: "never", next: "Close" },
+      { fileName: "08-close.md", title: "Close", purpose: "Close the review with a clear recommendation or follow-up issue list.", humanGate: "never", next: null },
     ],
   },
   {
@@ -95,8 +97,9 @@ const workflowSpecs: readonly WorkflowSpec[] = [
       { fileName: "03-reproduction.md", title: "Reproduction", purpose: "Reproduce the failure and log the exact conditions that trigger it.", humanGate: "always", next: "Root Cause Analysis" },
       { fileName: "04-root-cause-analysis.md", title: "Root Cause Analysis", purpose: "Identify the source of the failure and document the supporting evidence.", humanGate: "always", next: "Fix" },
       { fileName: "05-fix.md", title: "Fix", purpose: "Implement the smallest safe change that resolves the bug.", humanGate: "never", next: "Evidence Review" },
-      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Verify the fix with tests or other concrete evidence.", humanGate: "optional", next: "Close" },
-      { fileName: "07-close.md", title: "Close", purpose: "Summarize the fix, the verification, and any residual risk.", humanGate: "never", next: null },
+      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Verify the fix with tests or other concrete evidence.", humanGate: "optional", next: "Commit" },
+      { fileName: "07-commit.md", title: "Commit", purpose: "Inspect git state, stage the intended files, and create the final commit.", humanGate: "never", next: "Close" },
+      { fileName: "08-close.md", title: "Close", purpose: "Summarize the fix, the verification, and any residual risk.", humanGate: "never", next: null },
     ],
   },
   {
@@ -110,8 +113,9 @@ const workflowSpecs: readonly WorkflowSpec[] = [
       { fileName: "03-impact-analysis.md", title: "Impact Analysis", purpose: "Identify the modules, dependencies, and risks that the refactor will touch.", humanGate: "always", next: "Scope Definition" },
       { fileName: "04-scope-definition.md", title: "Scope Definition", purpose: "Define the smallest refactor that still delivers the improvement.", humanGate: "always", next: "Refactor Plan" },
       { fileName: "05-refactor-plan.md", title: "Refactor Plan", purpose: "Lay out the steps and file boundaries for the refactor.", humanGate: "never", next: "Evidence Review" },
-      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Verify that behavior remains stable after the refactor.", humanGate: "optional", next: "Close" },
-      { fileName: "07-close.md", title: "Close", purpose: "Summarize the maintainability improvement and any follow-up work.", humanGate: "never", next: null },
+      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Verify that behavior remains stable after the refactor.", humanGate: "optional", next: "Commit" },
+      { fileName: "07-commit.md", title: "Commit", purpose: "Inspect git state, stage the intended files, and create the final commit.", humanGate: "never", next: "Close" },
+      { fileName: "08-close.md", title: "Close", purpose: "Summarize the maintainability improvement and any follow-up work.", humanGate: "never", next: null },
     ],
   },
   {
@@ -126,8 +130,9 @@ const workflowSpecs: readonly WorkflowSpec[] = [
       { fileName: "04-scope-definition.md", title: "Scope Definition", purpose: "Define the MVP scope, the non-goals, and the acceptance criteria.", humanGate: "always", next: "MVP Plan" },
       { fileName: "05-mvp-plan.md", title: "MVP Plan", purpose: "Write the minimal plan that aligns the team on the first version.", humanGate: "always", next: "Plan Review" },
       { fileName: "06-plan-review.md", title: "Plan Review", purpose: "Review the plan before any development issues are generated.", humanGate: "always", next: "Issue Breakdown" },
-      { fileName: "07-issue-breakdown.md", title: "Issue Breakdown", purpose: "Split the reviewed plan into child issues with clear goals and evidence requirements.", humanGate: "always", next: "Close" },
-      { fileName: "08-close.md", title: "Close", purpose: "Record the final plan state, risks, and the next delivery step.", humanGate: "never", next: null },
+      { fileName: "07-issue-breakdown.md", title: "Issue Breakdown", purpose: "Split the reviewed plan into child issues with clear goals and evidence requirements.", humanGate: "always", next: "Commit" },
+      { fileName: "08-commit.md", title: "Commit", purpose: "Inspect git state, stage the intended files, and create the final commit.", humanGate: "never", next: "Close" },
+      { fileName: "09-close.md", title: "Close", purpose: "Record the final plan state, risks, and the next delivery step.", humanGate: "never", next: null },
     ],
   },
 ];
@@ -391,12 +396,18 @@ function renderWorkflowStepMarkdown(
   const currentFileLink = `[${step.fileName}](./${step.fileName})`;
   const previousStepLink = previousStep === null ? "none" : `[${previousStep.fileName}](./${previousStep.fileName})`;
   const nextStepLink = nextStep === null ? "none" : `[${nextStep.fileName}](./${nextStep.fileName})`;
+  const requiredCommandUsage = [
+    '- `flowness run "<request>"` creates or routes a new request through the workflow.',
+    "- `flowness step --issue ISSUE-ID` advances exactly one workflow step.",
+    "- `flowness status --issue ISSUE-ID` checks the current state before and after transitions.",
+    "- `flowness evidence:add --issue ISSUE-ID ...` records evidence without editing JSON by hand.",
+  ];
 
   const requiredInputs = [
+    "The current workflow step file.",
     "The current request or issue summary.",
     "The latest issue log entry and workflow state for this issue.",
-    "The project profile from `.agent/config/project-profile.md`.",
-    "The commands summary from `.agent/config/commands.md`.",
+    "The project profile and context index under `.flowness/`.",
     analysis.sourceDirectories.length > 0
       ? `Relevant source directories: ${analysis.sourceDirectories.join(", ")}.`
       : "TODO: detect the source directories before starting the step.",
@@ -408,6 +419,7 @@ function renderWorkflowStepMarkdown(
     "Append evidence to the issue log before writing the next workflow state.",
     "Stop and recover first if the latest log entry and workflow state disagree.",
     `Use \`${buildCommand}\`, \`${testCommand}\`, and \`${lintCommand}\` when they are relevant to the step.`,
+    "Do not skip workflow steps or advance state without the matching log entry.",
   ];
 
   const evidenceRequired = [
@@ -425,12 +437,17 @@ function renderWorkflowStepMarkdown(
     `The next step is \`${nextStepTitle}\`.`,
   ];
 
-  requiredInputs.unshift(`The current workflow step file (${currentFileLink}).`);
-  actions.push("Do not skip workflow steps or advance state without the matching log entry.");
+  const gateBehavior: string[] = [
+    `Human gate mode: ${step.humanGate}.`,
+  ];
 
   if (step.humanGate === "always") {
-    actions.push("Do not continue until explicit approval is appended to the issue log.");
+    gateBehavior.push("Explicit approval must be appended to the issue log before the next step runs.");
     exitCriteria.push("Explicit approval is logged before the next step starts.");
+  } else if (step.humanGate === "optional") {
+    gateBehavior.push("Approval is optional, but the log must still capture the reason the step continued.");
+  } else {
+    gateBehavior.push("No human approval gate is required for this step, but the log still needs to stay aligned.");
   }
 
   if (step.title === "Clarifying Questions") {
@@ -482,11 +499,32 @@ function renderWorkflowStepMarkdown(
     exitCriteria.push("The implementation can close only after this review is recorded.");
   }
 
+  if (step.title === "Commit") {
+    requiredInputs.push(
+      "The commit policy file under `.flowness/rules/commit-policy.md`.",
+      "The current git status, recent git log, and cached diff stat.",
+      "The final evidence review log entry.",
+    );
+    actions.push("Read the commit policy before staging or committing anything.");
+    actions.push("Inspect git status, git log, and diff stat before choosing the commit message.");
+    actions.push("Stage only the intended files and stop if there are no intended changes.");
+    actions.push("Report the commit hash, the message, and the changed files after the commit succeeds.");
+    evidenceRequired.push(
+      "The commit policy note.",
+      "The git status output.",
+      "The recent git log output.",
+      "The cached diff stat.",
+      "The final commit hash and changed file list.",
+    );
+    exitCriteria.push("The commit hash and changed file list are recorded.");
+  }
+
   if (step.title === "Close") {
     requiredInputs.push(
       "The Evidence Review log entry.",
       "The final review result.",
       "Any unresolved risks that must be carried forward.",
+      "The commit hash if this workflow requires a final commit.",
     );
     actions.push("Verify the latest log entry before closing.");
     actions.push("Do not close if Evidence Review is missing.");
@@ -557,6 +595,12 @@ function renderWorkflowStepMarkdown(
     "## Human Gate",
     `- ${step.humanGate}`,
     "",
+    "## Gate Behavior",
+    ...gateBehavior.map((item) => `- ${item}`),
+    "",
+    "## Required Command / Runner Usage",
+    ...requiredCommandUsage.map((item) => `- ${item}`),
+    "",
     "## Project Context",
     `- Project: ${analysis.projectName}`,
     `- Package manager: ${analysis.packageManager}`,
@@ -600,7 +644,8 @@ function renderWorkflowReadme(workflow: WorkflowSpec, analysis: ProjectAnalysis)
     `- Focus: ${workflow.focus}.`,
     "- Each step file is ordered and should be read from top to bottom.",
     "- Each step file includes frontmatter that the workflow loader can parse.",
-    "- Each step file includes current-step metadata, navigation links, gate details, and evidence requirements.",
+    "- Each step file includes current-step metadata, navigation links, gate behavior, runner usage, and evidence requirements.",
+    "- The final workflow step is Commit, and Close comes only after the commit record exists.",
     "",
   ].join("\n");
 }
@@ -706,22 +751,18 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
   return [
     "# AGENTS",
     "",
-    "If `.agent/` exists, use Flowness for all development work.",
-    "First analyze the request before creating an issue.",
-    "Do not create issues for greetings, thanks, casual conversation, or simple Q&A.",
-    "Use the MVP planning workflow for product and MVP requests.",
-    "Ask clarification questions when requirements are incomplete.",
-    "Ask clarification questions with multiple options, explicit pros and cons, a recommended default, and a clear request for the user's choice.",
-    "Reuse an existing open issue when the request matches the same work item.",
-    "Split large work into issues instead of forcing it into one ticket.",
+    "Flowness keeps project guidance intentionally small.",
     "",
-    "## Start Here",
-    '- Run `flowness request:create "<request>"` for real work requests.',
-    "- If a request is already analyzed, route it through the matching workflow and issue decomposition path.",
-    "- Reuse an existing open issue when the request matches the same work item.",
-    '- If you need the local TypeScript helper, run `npx tsx .agent/scripts/flowness-runner.ts "<request>"`.',
-    "- If the request is casual or question-only, answer directly and do not open an issue.",
-    "- Follow `.agent/rules/request-analysis.md`, `.agent/rules/clarification-policy.md`, `.agent/rules/issue-decomposition.md`, `.agent/rules/fail-closed-workflow.md`, `.agent/rules/workflow-step-contract.md`, `.agent/rules/evidence-policy.md`, and the workflow step files.",
+    "## How To Work",
+    '- Use `flowness run "<request>"` for new work requests.',
+    "- Use `flowness step --issue ISSUE-ID` to advance exactly one workflow step.",
+    "- Use `flowness status --issue ISSUE-ID` before and after transitions.",
+    "- Use `flowness evidence:add --issue ISSUE-ID ...` to record evidence without editing JSON by hand.",
+    "- Treat `.flowness/` as the source of truth and `.agent/` as legacy only.",
+    "- Do not edit issue, state, or evidence JSON directly.",
+    "- Ask clarification questions before implementation when requirements are incomplete.",
+    "- Reuse an open issue when the request matches existing work.",
+    "- Keep large requests split into smaller, verifiable issues.",
     "",
     "## Workflow Discipline",
     "- Never skip workflow steps.",
@@ -729,6 +770,13 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     "- Never pass a human gate without explicit approval evidence in the log.",
     "- Follow the `Next` link in each workflow step file before moving on.",
     "- Stop and recover first if the workflow state and log do not match.",
+    "- Commit only after Evidence Review and the commit policy check.",
+    "",
+    "## Context Files",
+    "- `.flowness/project-profile.md`",
+    "- `.flowness/context-index.json`",
+    "- `.flowness/commands.json`",
+    "- `.flowness/harness-manifest.json`",
     "",
     "## Project Context",
     `- Project: ${analysis.projectName}`,
@@ -747,25 +795,28 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     `- Git status: ${analysis.gitStatus}`,
     "",
     "## Workflow Files",
-    "- `.agent/rules/flowness-activation.md`",
-    "- `.agent/rules/request-analysis.md`",
-    "- `.agent/rules/clarification-policy.md`",
-    "- `.agent/rules/issue-decomposition.md`",
-    "- `.agent/rules/fail-closed-workflow.md`",
-    "- `.agent/rules/workflow-routing.md`",
-    "- `.agent/rules/definition-of-done.md`",
-    "- `.agent/rules/evidence-policy.md`",
-    "- `.agent/rules/*.md`",
-    "- `.agent/config/project-profile.md`",
-    "- `.agent/config/commands.md`",
-    "- `.agent/scripts/README.md`",
-    "- `.agent/scripts/flowness-runner.ts`",
-    "- `.agent/scripts/workflow-guard.ts`",
-    "- `.agent/workflows/feature-development/`",
-    "- `.agent/workflows/code-review/`",
-    "- `.agent/workflows/bug-fix/`",
-    "- `.agent/workflows/refactoring/`",
-    "- `.agent/workflows/mvp-planning/`",
+    "- `.flowness/rules/flowness-activation.md`",
+    "- `.flowness/rules/request-analysis.md`",
+    "- `.flowness/rules/clarification-policy.md`",
+    "- `.flowness/rules/issue-decomposition.md`",
+    "- `.flowness/rules/fail-closed-workflow.md`",
+    "- `.flowness/rules/workflow-routing.md`",
+    "- `.flowness/rules/definition-of-done.md`",
+    "- `.flowness/rules/evidence-policy.md`",
+    "- `.flowness/rules/commit-policy.md`",
+    "- `.flowness/rules/*.md`",
+    "- `.flowness/project-profile.md`",
+    "- `.flowness/context-index.json`",
+    "- `.flowness/commands.json`",
+    "- `.flowness/harness-manifest.json`",
+    "- `.flowness/scripts/README.md`",
+    "- `.flowness/scripts/flowness-runner.ts`",
+    "- `.flowness/scripts/workflow-guard.ts`",
+    "- `.flowness/workflows/feature-development/`",
+    "- `.flowness/workflows/code-review/`",
+    "- `.flowness/workflows/bug-fix/`",
+    "- `.flowness/workflows/refactoring/`",
+    "- `.flowness/workflows/mvp-planning/`",
     "",
     "## Verification",
     `- Build: ${buildCommand}`,
@@ -809,37 +860,107 @@ export function renderGeneratedProjectProfileMarkdown(analysis: ProjectAnalysis)
 }
 
 export function renderGeneratedProjectCommandsMarkdown(analysis: ProjectAnalysis): string {
-  return [
-    "# Commands",
-    "",
-    "## Build",
-    analysis.buildCommand ?? "TODO: detect build command.",
-    "",
-    "## Test",
-    analysis.testCommand ?? "TODO: detect test command.",
-    "",
-    "## Lint",
-    analysis.lintCommand ?? "TODO: detect lint command.",
-    "",
-    "## Package Manager",
-    analysis.packageManager,
-    "",
-    "## Source Directories",
-    analysis.sourceDirectories.length === 0 ? "TODO: detect source directories." : analysis.sourceDirectories.join("\n"),
-    "",
-  ].join("\n");
+  return JSON.stringify({
+    commands: {
+      init: "flowness init",
+      run: 'flowness run "<request>"',
+      step: "flowness step --issue ISSUE-ID",
+      status: "flowness status --issue ISSUE-ID",
+      evidenceAdd: "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path",
+      validate: "flowness validate",
+      workflowValidate: "flowness workflow:validate [workflow-id]",
+    },
+    project: {
+      build: analysis.buildCommand,
+      test: analysis.testCommand,
+      lint: analysis.lintCommand,
+      packageManager: analysis.packageManager,
+    },
+  }, null, 2) + "\n";
+}
+
+function renderGeneratedContextIndexJson(analysis: ProjectAnalysis): string {
+  return JSON.stringify({
+    projectName: analysis.projectName,
+    rootDir: ".",
+    files: {
+      config: ".flowness/config/project.yaml",
+      projectProfile: ".flowness/project-profile.md",
+      contextIndex: ".flowness/context-index.json",
+      commands: ".flowness/commands.json",
+      harnessManifest: ".flowness/harness-manifest.json",
+    },
+    directories: {
+      issues: ".flowness/issues",
+      logs: ".flowness/logs",
+      workflows: ".flowness/workflows",
+      rules: ".flowness/rules",
+      skills: ".flowness/skills",
+      scripts: ".flowness/scripts",
+      templates: ".flowness/templates",
+      prompts: ".flowness/prompts",
+      settings: ".flowness/settings",
+      state: ".flowness/state",
+    },
+    sourceDirectories: analysis.sourceDirectories,
+    documentationPaths: analysis.documentationPaths,
+  }, null, 2) + "\n";
+}
+
+function renderGeneratedHarnessManifestJson(analysis: ProjectAnalysis): string {
+  return JSON.stringify({
+    version: "0.1.4",
+    project: {
+      name: analysis.projectName,
+      packageManager: analysis.packageManager,
+      language: analysis.language,
+      framework: analysis.framework,
+    },
+    contextFiles: {
+      projectProfile: ".flowness/project-profile.md",
+      contextIndex: ".flowness/context-index.json",
+      commands: ".flowness/commands.json",
+      harnessManifest: ".flowness/harness-manifest.json",
+    },
+    workspace: {
+      config: ".flowness/config/project.yaml",
+      issues: ".flowness/issues",
+      logs: ".flowness/logs",
+      workflows: ".flowness/workflows",
+      rules: ".flowness/rules",
+      skills: ".flowness/skills",
+      scripts: ".flowness/scripts",
+      templates: ".flowness/templates",
+      prompts: ".flowness/prompts",
+      settings: ".flowness/settings",
+      state: ".flowness/state",
+    },
+    commands: {
+      run: "flowness run \"<request>\"",
+      step: "flowness step --issue ISSUE-ID",
+      status: "flowness status --issue ISSUE-ID",
+      evidenceAdd: "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path",
+      validate: "flowness validate",
+    },
+    sourceDirectories: analysis.sourceDirectories,
+    documentationPaths: analysis.documentationPaths,
+    gitStatus: analysis.gitStatus,
+    notes: analysis.notes,
+  }, null, 2) + "\n";
 }
 
 export function renderGeneratedConfigArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
   return [
-    artifact(".agent/config/project-profile.md", renderGeneratedProjectProfileMarkdown(analysis)),
-    artifact(".agent/config/commands.md", renderGeneratedProjectCommandsMarkdown(analysis)),
+    artifact(".flowness/project-profile.md", renderGeneratedProjectProfileMarkdown(analysis)),
+    artifact(".flowness/context-index.json", renderGeneratedContextIndexJson(analysis)),
+    artifact(".flowness/commands.json", renderGeneratedProjectCommandsMarkdown(analysis)),
+    artifact(".flowness/harness-manifest.json", renderGeneratedHarnessManifestJson(analysis)),
   ];
 }
 
 export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
   return [
-    artifact(".agent/rules/README.md", [
+    artifact(".flowness/rules/README.md", [
       "# Rules",
       "",
       "- `request-analysis.md`",
@@ -850,12 +971,13 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- `workflow-routing.md`",
       "- `definition-of-done.md`",
       "- `evidence-policy.md`",
+      "- `commit-policy.md`",
       "- `workflow-step-contract.md`",
       "",
       "These rules keep the project-specific workflow disciplined and evidence-backed.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/request-analysis.md", [
+    artifact(".flowness/rules/request-analysis.md", [
       "# Request Analysis",
       "",
       "- First classify the request before creating any issue.",
@@ -867,7 +989,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- Reuse an existing open issue when the request matches the same work item.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/clarification-policy.md", [
+    artifact(".flowness/rules/clarification-policy.md", [
       "# Clarification Policy",
       "",
       "- Ask clarification questions early in every workflow.",
@@ -877,7 +999,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- Make missing users, goals, constraints, risks, acceptance criteria, data model, security, testing, and non-goals explicit.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/issue-decomposition.md", [
+    artifact(".flowness/rules/issue-decomposition.md", [
       "# Issue Decomposition",
       "",
       "- Split large requests into 1..N issues when the work is too broad for one issue.",
@@ -886,7 +1008,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- Keep child issues small enough to execute and verify independently.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/fail-closed-workflow.md", [
+    artifact(".flowness/rules/fail-closed-workflow.md", [
       "# Fail Closed Workflow",
       "",
       "- Do not skip workflow steps.",
@@ -897,21 +1019,21 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- If a gate fails, record the failure and stop at the blocked step.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/flowness-activation.md", [
+    artifact(".flowness/rules/flowness-activation.md", [
       "# Flowness Activation",
       "",
       `- Project: ${analysis.projectName}`,
-      "- If `.agent/` exists, use Flowness for all development work.",
+      "- If legacy `.agent/` files exist, use Flowness for all new work and migrate when ready.",
       "- First analyze the request before creating any issue.",
       "- Do not create issues for simple questions or casual conversation.",
       "- Use the MVP workflow for product and MVP requests.",
       "- Ask clarification questions when the requirements are incomplete.",
       "- Reuse an existing open issue when the request matches the same work item.",
       "- Split large work into issues instead of forcing it into one ticket.",
-      "- Follow `.agent/rules/*` and the workflow step files before implementing.",
+      "- Follow `.flowness/rules/*` and the workflow step files before implementing.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/workflow-routing.md", [
+    artifact(".flowness/rules/workflow-routing.md", [
       "# Workflow Routing",
       "",
       "- Classify the request before changing code.",
@@ -923,7 +1045,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- Do not create a duplicate issue when a matching open issue already exists.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/definition-of-done.md", [
+    artifact(".flowness/rules/definition-of-done.md", [
       "# Definition of Done",
       "",
       `- Build evidence should use \`${analysis.buildCommand ?? "TODO: detect build command"}\` when available.`,
@@ -937,7 +1059,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- Do not claim completion while the final review or evidence gate is still blocked.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/evidence-policy.md", [
+    artifact(".flowness/rules/evidence-policy.md", [
       "# Evidence Policy",
       "",
       "- Prefer evidence from the detected source directories and docs.",
@@ -956,7 +1078,21 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- Keep evidence append-only in the issue log.",
       "",
     ].join("\n")),
-    artifact(".agent/rules/workflow-step-contract.md", [
+    artifact(".flowness/rules/commit-policy.md", [
+      "# Commit Policy",
+      "",
+      "- Read this policy immediately before creating the final commit step.",
+      "- Inspect `git status --short --untracked-files=all` before staging.",
+      "- Inspect `git log --oneline --graph --decorate -n 5` before choosing the commit message.",
+      "- Inspect `git diff --stat --cached` after staging and before committing.",
+      "- Stage only the files that belong to the issue or workflow step.",
+      "- Choose a commit prefix that matches the repository history when possible.",
+      "- Commit only after Evidence Review is complete and the review log is aligned with state.",
+      "- If no intended changes exist, stop and record the reason instead of committing an empty diff.",
+      "- Report the commit hash, the message, and the changed files after the commit succeeds.",
+      "",
+    ].join("\n")),
+    artifact(".flowness/rules/workflow-step-contract.md", [
       "# Workflow Step Contract",
       "",
       "- Run exactly one valid step at a time.",
@@ -974,7 +1110,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
 
 export function renderGeneratedSkillArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
   return [
-    artifact(".agent/skills/root-cause-analysis.md", renderSkillMarkdown("Root Cause Analysis", analysis, [
+    artifact(".flowness/skills/root-cause-analysis.md", renderSkillMarkdown("Root Cause Analysis", analysis, [
       "Find the smallest reproducible cause before changing code.",
       "Use it when a command fails, a regression appears, or behavior is unclear.",
       "Reproduce the issue, isolate the path, and capture the evidence.",
@@ -983,7 +1119,7 @@ export function renderGeneratedSkillArtifacts(analysis: ProjectAnalysis): readon
       "Record the failure mode and the likely fix path.",
       "The cause is explained and the next step is obvious.",
     ])),
-    artifact(".agent/skills/code-review.md", renderSkillMarkdown("Code Review", analysis, [
+    artifact(".flowness/skills/code-review.md", renderSkillMarkdown("Code Review", analysis, [
       "Review a pull request, patch, or change set before it lands.",
       "Use it when you need to find bugs, regressions, or missing tests.",
       "Read the diff, compare it with the request, and look for risky edges.",
@@ -992,7 +1128,7 @@ export function renderGeneratedSkillArtifacts(analysis: ProjectAnalysis): readon
       "Tie each finding back to concrete evidence.",
       "The review can be summarized with clear follow-up items.",
     ])),
-    artifact(".agent/skills/test-planning.md", renderSkillMarkdown("Test Planning", analysis, [
+    artifact(".flowness/skills/test-planning.md", renderSkillMarkdown("Test Planning", analysis, [
       "Plan tests before or after a change so the evidence path is clear.",
       "Use it when a task needs verification, regression coverage, or a gap analysis.",
       "Choose the smallest useful command set first.",
@@ -1001,7 +1137,7 @@ export function renderGeneratedSkillArtifacts(analysis: ProjectAnalysis): readon
       "Prefer commands that prove behavior rather than just compiling code.",
       "The test plan names the commands and evidence that matter.",
     ])),
-    artifact(".agent/skills/implementation-planning.md", renderSkillMarkdown("Implementation Planning", analysis, [
+    artifact(".flowness/skills/implementation-planning.md", renderSkillMarkdown("Implementation Planning", analysis, [
       "Turn a request into a small, safe implementation sequence.",
       "Use it when a task needs an execution plan before code changes start.",
       "Map the request to the workflow and the likely files involved.",
@@ -1010,7 +1146,7 @@ export function renderGeneratedSkillArtifacts(analysis: ProjectAnalysis): readon
       "Flag uncertainty instead of inventing details.",
       "The implementation path is scoped and ready to execute.",
     ])),
-    artifact(".agent/skills/README.md", [
+    artifact(".flowness/skills/README.md", [
       "# Skills",
       "",
       "- `root-cause-analysis.md`",
@@ -1026,7 +1162,7 @@ export function renderGeneratedSkillArtifacts(analysis: ProjectAnalysis): readon
 
 export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
   return [
-    artifact(".agent/templates/issue-template.md", [
+    artifact(".flowness/templates/issue-template.md", [
       "# Issue Template",
       "",
       "## Title",
@@ -1058,7 +1194,7 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
       "- Keep the issue focused and append-only.",
       "",
     ].join("\n")),
-    artifact(".agent/templates/issue-breakdown-template.md", [
+    artifact(".flowness/templates/issue-breakdown-template.md", [
       "# Issue Breakdown Template",
       "",
       "## Parent Issue",
@@ -1078,7 +1214,7 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
       "- Keep the parent/child relation explicit.",
       "",
     ].join("\n")),
-    artifact(".agent/templates/decision-template.md", [
+    artifact(".flowness/templates/decision-template.md", [
       "# Decision Template",
       "",
       "## Context",
@@ -1099,7 +1235,7 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
       `- Use \`${analysis.testCommand ?? "TODO: detect test command"}\` or other project evidence when relevant.`,
       "",
     ].join("\n")),
-    artifact(".agent/templates/review-template.md", [
+    artifact(".flowness/templates/review-template.md", [
       "# Review Template",
       "",
       "## Scope",
@@ -1116,7 +1252,7 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
       "List the smallest next action if a fix is needed.",
       "",
     ].join("\n")),
-    artifact(".agent/templates/log-entry-template.md", [
+    artifact(".flowness/templates/log-entry-template.md", [
       "# Log Entry Template",
       "",
       "## Timestamp",
@@ -1138,7 +1274,7 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
       "The next workflow step or `none`.",
       "",
     ].join("\n")),
-    artifact(".agent/templates/README.md", [
+    artifact(".flowness/templates/README.md", [
       "# Templates",
       "",
       "- `issue-template.md`",
@@ -1155,7 +1291,7 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
 
 export function renderGeneratedWorkflowArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
   const artifacts: ScaffoldArtifact[] = [
-    artifact(".agent/workflows/README.md", [
+    artifact(".flowness/workflows/README.md", [
       "# Workflows",
       "",
       "- `feature-development/`",
@@ -1171,7 +1307,7 @@ export function renderGeneratedWorkflowArtifacts(analysis: ProjectAnalysis): rea
 
   for (const workflow of workflowSpecs) {
     artifacts.push(
-      artifact(`.agent/workflows/${workflow.id}/README.md`, renderWorkflowReadme(workflow, analysis)),
+      artifact(`.flowness/workflows/${workflow.id}/README.md`, renderWorkflowReadme(workflow, analysis)),
     );
 
     for (let index = 0; index < workflow.steps.length; index += 1) {
@@ -1183,7 +1319,7 @@ export function renderGeneratedWorkflowArtifacts(analysis: ProjectAnalysis): rea
       const nextStep = workflow.steps[index + 1] ?? null;
       artifacts.push(
         artifact(
-          `.agent/workflows/${workflow.id}/${step.fileName}`,
+          `.flowness/workflows/${workflow.id}/${step.fileName}`,
           renderWorkflowStepMarkdown(workflow, step, previousStep, nextStep, analysis),
         ),
       );
@@ -1195,7 +1331,7 @@ export function renderGeneratedWorkflowArtifacts(analysis: ProjectAnalysis): rea
 
 export function renderGeneratedScriptArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
   return [
-    artifact(".agent/scripts/flowness-runner.ts", [
+    artifact(".flowness/scripts/flowness-runner.ts", [
       "#!/usr/bin/env node",
       "",
       "import { spawnSync } from \"node:child_process\";",
@@ -1222,14 +1358,14 @@ export function renderGeneratedScriptArtifacts(analysis: ProjectAnalysis): reado
       "function main(): number {",
       "  const request = process.argv.slice(2).join(\" \").trim();",
       "  if (request.length === 0) {",
-      "    console.error('Usage: npx tsx .agent/scripts/flowness-runner.ts \"<request>\"');",
+      "    console.error('Usage: npx tsx .flowness/scripts/flowness-runner.ts \"<request>\"');",
       "    return 1;",
       "  }",
       "",
       "  const attempts: readonly (readonly [string, readonly string[]])[] = [",
-      "    [\"flowness\", [\"request:create\", request]],",
-      "    [\"npx\", [\"flowness\", \"request:create\", request]],",
-      "    [\"npm\", [\"exec\", \"flowness\", \"--\", \"request:create\", request]],",
+      "    [\"flowness\", [\"run\", request]],",
+      "    [\"npx\", [\"flowness\", \"run\", request]],",
+      "    [\"npm\", [\"exec\", \"flowness\", \"--\", \"run\", request]],",
       "  ];",
       "",
       "  for (const attempt of attempts) {",
@@ -1247,7 +1383,7 @@ export function renderGeneratedScriptArtifacts(analysis: ProjectAnalysis): reado
       "process.exitCode = main();",
       "",
     ].join("\n")),
-    artifact(".agent/scripts/workflow-guard.ts", [
+    artifact(".flowness/scripts/workflow-guard.ts", [
       "#!/usr/bin/env node",
       "",
       "import { existsSync } from \"node:fs\";",
@@ -1275,8 +1411,12 @@ export function renderGeneratedScriptArtifacts(analysis: ProjectAnalysis): reado
       "",
       "function main(): number {",
       "  const rootDir = process.cwd();",
-      "  const configPath = join(rootDir, \".flowness\", \"config.yaml\");",
-      "  if (!existsSync(configPath)) {",
+      "  const configPaths = [",
+      "    join(rootDir, \".flowness\", \"config\", \"project.yaml\"),",
+      "    join(rootDir, \".agent\", \"config.yaml\"),",
+      "    join(rootDir, \".agent\", \"config\", \"project.yaml\"),",
+      "  ];",
+      "  if (!configPaths.some((configPath) => existsSync(configPath))) {",
       "    console.error('Flowness project is not initialized. Run `flowness init` first.');",
       "    return 1;",
       "  }",
@@ -1311,142 +1451,7 @@ export function renderGeneratedScriptArtifacts(analysis: ProjectAnalysis): reado
 }
 
 export function renderGeneratedHookArtifacts(_analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
-  return [
-    artifact(".codex/hooks/package.json", JSON.stringify({
-      type: "module",
-    }, null, 2) + "\n"),
-    artifact(".codex/hooks/user-prompt-submit.ts", [
-      "#!/usr/bin/env node",
-      "",
-      "import { existsSync } from \"node:fs\";",
-      "import { spawnSync } from \"node:child_process\";",
-      "import { join, dirname } from \"node:path\";",
-      "",
-      "interface HookInput {",
-      "  readonly prompt?: string;",
-      "  readonly turn_id?: string;",
-      "  readonly [key: string]: unknown;",
-      "}",
-      "",
-      "function readAllStdin(): Promise<string> {",
-      "  return new Promise((resolve, reject) => {",
-      "    const chunks: Buffer[] = [];",
-      "    process.stdin.setEncoding(\"utf8\");",
-      "    process.stdin.on(\"data\", (chunk: string) => chunks.push(Buffer.from(chunk, \"utf8\")));",
-      "    process.stdin.on(\"end\", () => resolve(Buffer.concat(chunks).toString(\"utf8\")));",
-      "    process.stdin.on(\"error\", reject);",
-      "  });",
-      "}",
-      "",
-      "function findWorkspaceRoot(startDir: string): string | null {",
-      "  let currentDir = startDir;",
-      "  while (true) {",
-      "    if (existsSync(join(currentDir, \".flowness\", \"config.yaml\"))) {",
-      "      return currentDir;",
-      "    }",
-      "",
-      "    const parentDir = dirname(currentDir);",
-      "    if (parentDir === currentDir) {",
-      "      return null;",
-      "    }",
-      "",
-      "    currentDir = parentDir;",
-      "  }",
-      "}",
-      "",
-      "function runFlownessRequestCreate(rootDir: string, prompt: string): { status: number; stdout: string; stderr: string } {",
-      "  const attempts: readonly (readonly [string, readonly string[]])[] = [",
-      "    [\"flowness\", [\"request:create\", prompt]],",
-      "    [\"npx\", [\"flowness\", \"request:create\", prompt]],",
-      "    [\"npm\", [\"exec\", \"flowness\", \"--\", \"request:create\", prompt]],",
-      "  ];",
-      "",
-      "  for (const attempt of attempts) {",
-      "    const [command, args] = attempt;",
-      "    const result = spawnSync(command, [...args], {",
-      "      cwd: rootDir,",
-      "      encoding: \"utf8\",",
-      "      maxBuffer: 10 * 1024 * 1024,",
-      "    });",
-      "",
-      "    if (result.error !== undefined) {",
-      "      const error = result.error as { code?: string; message?: string };",
-      "      if (error.code === \"ENOENT\") {",
-      "        continue;",
-      "      }",
-      "",
-      "      return {",
-      "        status: 1,",
-      "        stdout: result.stdout ?? \"\",",
-      "        stderr: error.message ?? \"Failed to run Flowness CLI.\",",
-      "      };",
-      "    }",
-      "",
-      "    return {",
-      "      status: result.status ?? 0,",
-      "      stdout: result.stdout ?? \"\",",
-      "      stderr: result.stderr ?? \"\",",
-      "    };",
-      "  }",
-      "",
-      "  return {",
-      "    status: 127,",
-      "    stdout: \"\",",
-      "    stderr: \"Flowness CLI was not found.\",",
-      "  };",
-      "}",
-      "",
-      "async function main(): Promise<number> {",
-      "  const rawInput = await readAllStdin();",
-      "  if (rawInput.trim().length === 0) {",
-      "    return 0;",
-      "  }",
-      "",
-      "  let input: HookInput;",
-      "  try {",
-      "    input = JSON.parse(rawInput) as HookInput;",
-      "  } catch {",
-      "    return 0;",
-      "  }",
-      "",
-      "  const prompt = typeof input.prompt === \"string\" ? input.prompt.trim() : \"\";",
-      "  if (prompt.length === 0) {",
-      "    return 0;",
-      "  }",
-      "",
-      "  const rootDir = findWorkspaceRoot(process.cwd());",
-      "  if (rootDir === null) {",
-      "    return 0;",
-      "  }",
-      "",
-      "  const result = runFlownessRequestCreate(rootDir, prompt);",
-      "  if (result.status === 127) {",
-      "    return 0;",
-      "  }",
-      "",
-      "  const context = result.status === 0",
-      "    ? result.stdout.trim()",
-      "    : [result.stderr.trim(), result.stdout.trim()].filter((entry) => entry.length > 0).join(\"\\n\");",
-      "",
-      "  if (context.length === 0) {",
-      "    return 0;",
-      "  }",
-      "",
-      "  const payload = {",
-      "    hookSpecificOutput: {",
-      "      hookEventName: \"UserPromptSubmit\",",
-      "      additionalContext: [\"Flowness routing result:\", context].join(\"\\n\"),",
-      "    },",
-      "  };",
-      "",
-      "  process.stdout.write(`${JSON.stringify(payload, null, 2)}\\n`);",
-      "  return 0;",
-      "}",
-      "",
-      "process.exitCode = await main();",
-      "",
-    ].join("\n")),
-  ];
+  return [];
 }
 
 export function renderGeneratedScriptsReadmeMarkdown(analysis: ProjectAnalysis): string {
@@ -1460,25 +1465,24 @@ export function renderGeneratedScriptsReadmeMarkdown(analysis: ProjectAnalysis):
     "Use the TypeScript runner when you want a local protocol helper:",
     "",
     '```bash',
-    'npx tsx .agent/scripts/flowness-runner.ts "<request>"',
+    'npx tsx .flowness/scripts/flowness-runner.ts "<request>"',
     '```',
     "",
     "Use the workflow guard when you want to validate the workspace or a specific workflow:",
     "",
     '```bash',
-    "npx tsx .agent/scripts/workflow-guard.ts",
+    "npx tsx .flowness/scripts/workflow-guard.ts",
     '```',
     "",
     "Fallback to the Flowness CLI when TSX is unavailable:",
     "",
     '```bash',
-    'flowness request:create "<request>"',
+    'flowness run "<request>"',
     '```',
     "",
     "## Workspace Scripts",
     "- `flowness-runner.ts` routes a request through Flowness.",
     "- `workflow-guard.ts` validates the workspace or a workflow id.",
-    "- `.codex/hooks/user-prompt-submit.ts` analyzes user prompts before the assistant responds.",
     "- `find-fqcn.py` searches for fully qualified names and references.",
     "- `search-reference.py` searches for file and symbol references.",
     "- `check-md-size.py` checks Markdown size thresholds.",
@@ -1491,6 +1495,7 @@ export function renderGeneratedScriptsReadmeMarkdown(analysis: ProjectAnalysis):
     "## Notes",
     "- Keep helper scripts small and deterministic.",
     "- If a command is missing, add a TODO instead of guessing.",
+    "- Use `flowness step --issue ISSUE-ID`, `flowness status --issue ISSUE-ID`, and `flowness evidence:add ...` instead of editing workflow JSON by hand.",
     "",
   ].join("\n");
 }

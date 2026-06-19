@@ -19,5 +19,6 @@ test("workflow scaffolds render executable TypeScript", () => {
   assert.match(source, /defineWorkflow/);
   assert.match(source, /Feature Workflow/);
   assert.match(source, /Clarification/);
+  assert.match(source, /Commit/);
+  assert.match(source, /runCommitWorkflowStep/);
 });
-

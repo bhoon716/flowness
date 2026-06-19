@@ -44,6 +44,8 @@ export type {
 } from "./request-routing.js";
 export {
   resolveIssuePaths,
+  resolveLegacyIssuePaths,
+  resolveExistingIssuePaths,
   resolvePromptScaffoldPaths,
   resolveScriptScaffoldPaths,
   resolveRuleScaffoldPaths,

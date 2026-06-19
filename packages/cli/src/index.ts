@@ -10,6 +10,7 @@ import {
   readProjectConfig,
   readTextFile,
   resolveIssuePaths,
+  resolveExistingIssuePaths,
   resolveWorkspacePaths,
   resolveRuleScaffoldPaths,
   resolveSkillScaffoldPaths,
@@ -17,6 +18,7 @@ import {
   isLikelyNaturalLanguageRequest,
   slugify,
   type EvidenceRecord,
+  type EvidenceKind,
   type IssueRecord,
   type IssuePlan,
   type RequestAnalysis,
@@ -46,6 +48,7 @@ import {
 import {
   createEvidenceRecord,
   hasEvidenceKind,
+  normalizeEvidenceKind,
   summarizeEvidence,
   validateEvidenceRecords,
 } from "@flowness-labs/evidence-system";
@@ -123,6 +126,20 @@ export interface ParsedWorkflowRecoverCommand {
   readonly kind: "workflow:recover";
   readonly issueId: string;
   readonly rootCause: string;
+}
+
+export interface ParsedStatusCommand {
+  readonly kind: "status";
+  readonly issueId: string;
+}
+
+export interface ParsedEvidenceAddCommand {
+  readonly kind: "evidence:add";
+  readonly issueId: string;
+  readonly evidenceKind: EvidenceKind;
+  readonly title: string;
+  readonly detail?: string;
+  readonly location?: string;
 }
 
 export interface ParsedDecisionCreateCommand {
@@ -203,6 +220,8 @@ export type ParsedCommand =
   | ParsedWorkflowValidateCommand
   | ParsedWorkflowStepCommand
   | ParsedWorkflowRecoverCommand
+  | ParsedStatusCommand
+  | ParsedEvidenceAddCommand
   | ParsedDecisionCreateCommand
   | ParsedReviewRunCommand
   | ParsedSkillCreateCommand
@@ -820,6 +839,190 @@ function parseWorkflowRecoverCommand(rest: readonly string[]): ParsedWorkflowRec
   };
 }
 
+function parseStatusCommand(rest: readonly string[]): ParsedStatusCommand {
+  let issueId: string | undefined;
+  const positional: string[] = [];
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (token === undefined) {
+      continue;
+    }
+
+    if (token === "--issue") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --issue.");
+      }
+      issueId = normalizeIssueId(next);
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--issue=")) {
+      issueId = normalizeIssueId(token.slice("--issue=".length));
+      continue;
+    }
+
+    positional.push(token);
+  }
+
+  if (issueId === undefined && positional.length > 0) {
+    issueId = normalizeIssueId(positional.shift() ?? "");
+  }
+
+  if (issueId === undefined) {
+    throw new Error("Issue id is required.");
+  }
+
+  if (positional.length > 0) {
+    throw new Error(`Unexpected extra arguments: ${positional.join(" ")}`);
+  }
+
+  return {
+    kind: "status",
+    issueId,
+  };
+}
+
+function parseEvidenceAddCommand(rest: readonly string[]): ParsedEvidenceAddCommand {
+  let issueId: string | undefined;
+  let evidenceKind: EvidenceKind | undefined;
+  let title: string | undefined;
+  let detail: string | undefined;
+  let location: string | undefined;
+  const positional: string[] = [];
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (token === undefined) {
+      continue;
+    }
+
+    if (token === "--issue") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --issue.");
+      }
+      issueId = normalizeIssueId(next);
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--issue=")) {
+      issueId = normalizeIssueId(token.slice("--issue=".length));
+      continue;
+    }
+
+    if (token === "--kind" || token === "-k") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --kind.");
+      }
+      evidenceKind = normalizeEvidenceKind(next);
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--kind=")) {
+      evidenceKind = normalizeEvidenceKind(token.slice("--kind=".length));
+      continue;
+    }
+
+    if (token === "--title") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --title.");
+      }
+      title = next;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--title=")) {
+      title = token.slice("--title=".length);
+      continue;
+    }
+
+    if (token === "--detail") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --detail.");
+      }
+      detail = next;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--detail=")) {
+      detail = token.slice("--detail=".length);
+      continue;
+    }
+
+    if (token === "--location") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --location.");
+      }
+      location = next;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--location=")) {
+      location = token.slice("--location=".length);
+      continue;
+    }
+
+    positional.push(token);
+  }
+
+  if (issueId === undefined && positional.length > 0) {
+    issueId = normalizeIssueId(positional.shift() ?? "");
+  }
+
+  if (evidenceKind === undefined && location !== undefined) {
+    evidenceKind = "file";
+  }
+
+  if (evidenceKind === undefined) {
+    evidenceKind = "command_output";
+  }
+
+  if (title === undefined && positional.length > 0) {
+    title = positional.shift();
+  }
+
+  if (detail === undefined && positional.length > 0) {
+    detail = positional.shift();
+  }
+
+  if (location === undefined && positional.length > 0) {
+    location = positional.shift();
+  }
+
+  if (issueId === undefined) {
+    throw new Error("Issue id is required.");
+  }
+
+  if (title === undefined || title.trim().length === 0) {
+    throw new Error("Evidence title is required.");
+  }
+
+  if (positional.length > 0) {
+    throw new Error(`Unexpected extra arguments: ${positional.join(" ")}`);
+  }
+
+  return {
+    kind: "evidence:add",
+    issueId,
+    evidenceKind,
+    title,
+    ...(detail === undefined ? {} : { detail }),
+    ...(location === undefined ? {} : { location }),
+  };
+}
+
 function parseDecisionCreateCommand(rest: readonly string[]): ParsedDecisionCreateCommand {
   let issueId: string | undefined;
   let title: string | undefined;
@@ -1422,20 +1625,26 @@ export function parseCommand(argv: readonly string[]): ParsedCommand {
   switch (command) {
     case "init":
       return parseInitCommand(rest);
-    case "issue:create":
-      return parseIssueCreateCommand(rest);
+    case "run":
     case "request:create":
       return parseRequestCreateCommand(rest);
+    case "issue:create":
+      return parseIssueCreateCommand(rest);
     case "skill:run":
       return parseSkillRunCommand(rest);
     case "workflow:create":
       return parseWorkflowCreateCommand(rest);
     case "workflow:validate":
       return parseWorkflowValidateCommand(rest);
+    case "step":
     case "workflow:step":
       return parseWorkflowStepCommand(rest);
     case "workflow:recover":
       return parseWorkflowRecoverCommand(rest);
+    case "status":
+      return parseStatusCommand(rest);
+    case "evidence:add":
+      return parseEvidenceAddCommand(rest);
     case "decision:create":
       return parseDecisionCreateCommand(rest);
     case "review:run":
@@ -1467,12 +1676,23 @@ function formatInitSummary(
   createdDirectories: readonly string[],
   skippedFiles: readonly string[],
   alreadyInitialized: boolean,
+  gitInitialized: boolean,
+  warnings: readonly string[],
 ): string {
   const lines = [
     alreadyInitialized
       ? `Flowness project already existed at ${targetPath}.`
       : `Initialized Flowness project at ${targetPath}.`,
   ];
+
+  if (gitInitialized) {
+    lines.push("Initialized a git repository for the workspace.");
+  }
+
+  if (warnings.length > 0) {
+    lines.push("Warnings:");
+    lines.push(...warnings.map((warning) => `- ${warning}`));
+  }
 
   if (createdDirectories.length > 0) {
     lines.push(`Created directories: ${createdDirectories.join(", ")}`);
@@ -1486,7 +1706,7 @@ function formatInitSummary(
     lines.push(`Skipped existing files: ${skippedFiles.join(", ")}`);
   }
 
-  lines.push("Next: review .flowness/config.yaml and the .agent/ workspace before adding workflows.");
+  lines.push("Next: review .flowness/project-profile.md, .flowness/context-index.json, .flowness/commands.json, and .flowness/harness-manifest.json.");
   return lines.join("\n");
 }
 
@@ -1605,42 +1825,48 @@ async function findReusableIssueWorkspace(
   analysis: RequestAnalysis,
   workflowId: string,
 ): Promise<Awaited<ReturnType<typeof readIssueWorkspace>> | null> {
-  const issueRoot = join(rootDir, ".agent", "issues");
-  if (!(await pathExists(issueRoot))) {
-    return null;
-  }
-
-  const entries = await readdir(issueRoot, { withFileTypes: true });
   let bestMatch: {
     readonly workspace: NonNullable<Awaited<ReturnType<typeof readIssueWorkspace>>>;
     readonly score: number;
   } | null = null;
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
+  const issueRoots = [
+    resolveWorkspacePaths(rootDir).agentIssuesDir,
+    join(rootDir, ".agent", "issues"),
+  ];
+
+  for (const issueRoot of issueRoots) {
+    if (!(await pathExists(issueRoot))) {
       continue;
     }
 
-    const workspace = await readIssueWorkspace(rootDir, entry.name);
-    if (workspace === null || workspace.issue.workflowId !== workflowId) {
-      continue;
-    }
+    const entries = await readdir(issueRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
 
-    if (workspace.issue.state === "closed") {
-      continue;
-    }
+      const workspace = await readIssueWorkspace(rootDir, entry.name);
+      if (workspace === null || workspace.issue.workflowId !== workflowId) {
+        continue;
+      }
 
-    const score = Math.max(
-      calculateRequestSimilarity(analysis.request, workspace.description ?? ""),
-      calculateRequestSimilarity(analysis.request, workspace.issue.title),
-      workspace.issue.goal === undefined ? 0 : calculateRequestSimilarity(analysis.request, workspace.issue.goal),
-    );
+      if (workspace.issue.state === "closed") {
+        continue;
+      }
 
-    if (score >= 0.75 && (bestMatch === null || score > bestMatch.score)) {
-      bestMatch = {
-        workspace,
-        score,
-      };
+      const score = Math.max(
+        calculateRequestSimilarity(analysis.request, workspace.description ?? ""),
+        calculateRequestSimilarity(analysis.request, workspace.issue.title),
+        workspace.issue.goal === undefined ? 0 : calculateRequestSimilarity(analysis.request, workspace.issue.goal),
+      );
+
+      if (score >= 0.75 && (bestMatch === null || score > bestMatch.score)) {
+        bestMatch = {
+          workspace,
+          score,
+        };
+      }
     }
   }
 
@@ -1876,6 +2102,45 @@ function formatWorkflowRecoverSummary(
   ].join("\n");
 }
 
+function formatStatusSummary(input: {
+  readonly issueId: string;
+  readonly workflowId: string;
+  readonly layout: "flowness" | "legacy";
+  readonly currentStep: string;
+  readonly completedSteps: readonly string[];
+  readonly blocked: boolean;
+  readonly latestLogStep: string | null;
+  readonly evidenceCount: number;
+  readonly logPath: string;
+}): string {
+  return [
+    `Issue: ${input.issueId}`,
+    `Workflow: ${input.workflowId}`,
+    `Layout: ${input.layout}`,
+    `Current step: ${input.currentStep.length === 0 ? "complete" : input.currentStep}`,
+    `Completed steps: ${input.completedSteps.length === 0 ? "none" : input.completedSteps.join(", ")}`,
+    `Blocked: ${input.blocked ? "yes" : "no"}`,
+    `Latest log step: ${input.latestLogStep ?? "none"}`,
+    `Evidence items: ${input.evidenceCount}`,
+    `Log: ${input.logPath}`,
+  ].join("\n");
+}
+
+function formatEvidenceAddSummary(input: {
+  readonly issueId: string;
+  readonly evidence: EvidenceRecord;
+  readonly logPath: string;
+}): string {
+  return [
+    `Recorded evidence for ${input.issueId}.`,
+    `Kind: ${input.evidence.kind}`,
+    `Title: ${input.evidence.title}`,
+    input.evidence.detail === undefined ? null : `Detail: ${input.evidence.detail}`,
+    input.evidence.location === undefined ? null : `Location: ${input.evidence.location}`,
+    `Log: ${input.logPath}`,
+  ].filter((line): line is string => line !== null).join("\n");
+}
+
 async function persistWorkflowOutcome(input: {
   readonly rootDir: string;
   readonly workspace: Awaited<ReturnType<typeof loadIssueWorkspaceOrThrow>>;
@@ -2044,7 +2309,7 @@ async function persistWorkflowOutcome(input: {
 }
 
 async function collectIssueEvidence(rootDir: string, issueId: string): Promise<readonly EvidenceRecord[]> {
-  const issuePaths = resolveIssuePaths(rootDir, issueId);
+  const issuePaths = await resolveExistingIssuePaths(rootDir, issueId);
   const candidates: Array<[string, string]> = [
     [issuePaths.issueFile, "issue.md"],
     [issuePaths.issueJsonFile, "issue.json"],
@@ -2110,7 +2375,10 @@ async function buildWorkflowDefinition(rootDir: string, workflowId: string) {
 
 async function ensureInitializedProject(rootDir: string): Promise<void> {
   const paths = resolveWorkspacePaths(rootDir);
-  if (!(await pathExists(paths.configPath))) {
+  const isInitialized = await pathExists(paths.configPath)
+    || await pathExists(paths.legacyConfigPath)
+    || await pathExists(join(rootDir, ".agent", "config", "project.yaml"));
+  if (!isInitialized) {
     throw new Error("Flowness project is not initialized. Run `flowness init` first.");
   }
 }
@@ -2237,6 +2505,8 @@ async function runInitCommand(command: ParsedInitCommand): Promise<CliResult> {
       result.createdDirectories,
       result.skippedFiles,
       result.alreadyInitialized,
+      result.gitInitialized,
+      result.warnings,
     ),
   };
 }
@@ -2322,6 +2592,7 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
     const parentResult = await createIssueWorkspace({
       rootDir,
       title: primaryPlan.title,
+      intent: analysis.intentSlug,
       type: primaryPlan.type,
       workflow: effectiveWorkflow,
       force: command.force,
@@ -2553,18 +2824,18 @@ async function runSkillCreateCommand(command: ParsedSkillCreateCommand): Promise
   const skippedFiles: string[] = [];
 
   if (await ensureDirectory(paths.skillsDir)) {
-    createdDirectories.push(".agent/skills");
+    createdDirectories.push(".flowness/skills");
   }
   if (await ensureDirectory(paths.skillDir)) {
-    createdDirectories.push(`.agent/skills/${command.skillId}`);
+    createdDirectories.push(`.flowness/skills/${command.skillId}`);
   }
 
   const skillMarkdown = renderSkillMarkdown(command.skillId, command.title, command.description);
   const skillWriteResult = await writeTextFile(paths.skillFile, skillMarkdown, command.force);
   if (skillWriteResult === "written") {
-    createdFiles.push(`.agent/skills/${command.skillId}/SKILL.md`);
+    createdFiles.push(`.flowness/skills/${command.skillId}/SKILL.md`);
   } else {
-    skippedFiles.push(`.agent/skills/${command.skillId}/SKILL.md`);
+    skippedFiles.push(`.flowness/skills/${command.skillId}/SKILL.md`);
   }
 
   const readmeWriteResult = await writeTextFile(
@@ -2573,9 +2844,9 @@ async function runSkillCreateCommand(command: ParsedSkillCreateCommand): Promise
     command.force,
   );
   if (readmeWriteResult === "written") {
-    createdFiles.push(`.agent/skills/${command.skillId}/README.md`);
+    createdFiles.push(`.flowness/skills/${command.skillId}/README.md`);
   } else {
-    skippedFiles.push(`.agent/skills/${command.skillId}/README.md`);
+    skippedFiles.push(`.flowness/skills/${command.skillId}/README.md`);
   }
 
   return {
@@ -2688,7 +2959,7 @@ async function runRuleCreateCommand(command: ParsedRuleCreateCommand): Promise<C
   const skippedFiles: string[] = [];
 
   if (await ensureDirectory(paths.rulesDir)) {
-    createdDirectories.push(".agent/rules");
+    createdDirectories.push(".flowness/rules");
   }
 
   const ruleWriteResult = await writeTextFile(
@@ -2697,9 +2968,9 @@ async function runRuleCreateCommand(command: ParsedRuleCreateCommand): Promise<C
     command.force,
   );
   if (ruleWriteResult === "written") {
-    createdFiles.push(`.agent/rules/${command.ruleId}.md`);
+    createdFiles.push(`.flowness/rules/${command.ruleId}.md`);
   } else {
-    skippedFiles.push(`.agent/rules/${command.ruleId}.md`);
+    skippedFiles.push(`.flowness/rules/${command.ruleId}.md`);
   }
 
   return {
@@ -2899,11 +3170,109 @@ async function runWorkflowRecoverCommand(command: ParsedWorkflowRecoverCommand):
   };
 }
 
+async function runStatusCommand(command: ParsedStatusCommand): Promise<CliResult> {
+  const rootDir = process.cwd();
+  await ensureInitializedProject(rootDir);
+  const workspace = await readIssueWorkspace(rootDir, command.issueId);
+  if (workspace === null) {
+    return {
+      exitCode: 1,
+      output: `Issue workspace not found: ${command.issueId}`,
+    };
+  }
+
+  try {
+    await assertIssueWorkspaceLogAlignment(rootDir, workspace);
+  } catch (error) {
+    return {
+      exitCode: 1,
+      output: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const latestLogEntry = await readLatestIssueLogEntry(rootDir, workspace.issue.id);
+  const evidence = await collectIssueEvidence(rootDir, workspace.issue.id);
+
+  return {
+    exitCode: 0,
+    output: formatStatusSummary({
+      issueId: workspace.issue.id,
+      workflowId: workspace.issue.workflowId,
+      layout: workspace.issuePaths.isLegacy ? "legacy" : "flowness",
+      currentStep: workspace.workflowState.currentStep,
+      completedSteps: workspace.workflowState.completedSteps,
+      blocked: workspace.workflowState.blocked,
+      latestLogStep: latestLogEntry === null ? null : latestLogEntry.step,
+      evidenceCount: evidence.length,
+      logPath: workspace.issue.logPath,
+    }),
+  };
+}
+
+async function runEvidenceAddCommand(command: ParsedEvidenceAddCommand): Promise<CliResult> {
+  const rootDir = process.cwd();
+  await ensureInitializedProject(rootDir);
+  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const evidence = createEvidenceRecord({
+    kind: command.evidenceKind,
+    title: command.title,
+    ...(command.detail === undefined ? {} : { detail: command.detail }),
+    ...(command.location === undefined ? {} : { location: command.location }),
+  });
+
+  if (command.location !== undefined && !(await pathExists(command.location))) {
+    return {
+      exitCode: 1,
+      output: `Evidence location does not exist: ${command.location}`,
+    };
+  }
+
+  const nextState = {
+    ...workspace.workflowState,
+    evidence: [
+      ...workspace.workflowState.evidence,
+      evidence,
+    ],
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updatedWorkspace = await writeIssueWorkspaceState(rootDir, workspace.issue, nextState, workspace.description);
+  const logEntry = createLogEntry({
+    timestamp: nextState.updatedAt,
+    step: "Evidence Added",
+    actions: [
+      `Recorded evidence ${command.title}.`,
+      `Kind: ${command.evidenceKind}`,
+      ...(command.detail === undefined ? [] : [`Detail: ${command.detail}`]),
+      ...(command.location === undefined ? [] : [`Location: ${command.location}`]),
+    ],
+    evidence: [
+      evidence,
+    ],
+    summary: `Evidence ${command.title} was recorded.`,
+    nextStep: updatedWorkspace.workflowState.currentStep || null,
+  });
+  await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, logEntry);
+
+  return {
+    exitCode: 0,
+    output: formatEvidenceAddSummary({
+      issueId: workspace.issue.id,
+      evidence,
+      logPath: workspace.issue.logPath,
+    }),
+  };
+}
+
 async function runValidateCommand(): Promise<CliResult> {
   const rootDir = process.cwd();
   const errors: string[] = [];
 
-  if (!(await pathExists(resolveWorkspacePaths(rootDir).configPath))) {
+  const paths = resolveWorkspacePaths(rootDir);
+  const isInitialized = await pathExists(paths.configPath)
+    || await pathExists(paths.legacyConfigPath)
+    || await pathExists(join(rootDir, ".agent", "config", "project.yaml"));
+  if (!isInitialized) {
     return {
       exitCode: 1,
       output: "Flowness project is not initialized. Run `flowness init` first.",
@@ -2919,17 +3288,18 @@ async function runValidateCommand(): Promise<CliResult> {
   errors.push(...validateBuiltinWorkflowDefinitions());
 
   const requiredDirectories = [
-    ".agent",
-    ".agent/issues",
-    ".agent/logs",
-    ".agent/workflows",
-    ".agent/rules",
-    ".agent/skills",
-    ".agent/scripts",
-    ".agent/templates",
-    ".agent/prompts",
-    ".agent/settings",
     ".flowness",
+    ".flowness/config",
+    ".flowness/issues",
+    ".flowness/logs",
+    ".flowness/workflows",
+    ".flowness/rules",
+    ".flowness/skills",
+    ".flowness/scripts",
+    ".flowness/templates",
+    ".flowness/prompts",
+    ".flowness/settings",
+    ".flowness/state",
   ];
 
   for (const directory of requiredDirectories) {
@@ -2938,29 +3308,29 @@ async function runValidateCommand(): Promise<CliResult> {
     }
   }
 
-  const requiredPromptFiles = [
-    ".agent/prompts/core-agent.md",
-    ".agent/prompts/planning-agent.md",
-    ".agent/prompts/review-agent.md",
-    ".agent/prompts/research-agent.md",
-    ".agent/prompts/architecture-agent.md",
+  const requiredFiles = [
+    "AGENTS.md",
+    ".flowness/config/project.yaml",
+    ".flowness/project-profile.md",
+    ".flowness/context-index.json",
+    ".flowness/commands.json",
+    ".flowness/harness-manifest.json",
+    ".flowness/rules/README.md",
+    ".flowness/rules/commit-policy.md",
+    ".flowness/scripts/README.md",
+    ".flowness/scripts/flowness-runner.ts",
+    ".flowness/scripts/workflow-guard.ts",
+    ".flowness/scripts/find-fqcn.py",
+    ".flowness/scripts/search-reference.py",
+    ".flowness/scripts/check-md-size.py",
+    ".flowness/workflows/README.md",
+    ".flowness/skills/README.md",
+    ".flowness/templates/README.md",
   ];
 
-  for (const file of requiredPromptFiles) {
+  for (const file of requiredFiles) {
     if (!(await pathExists(join(rootDir, file)))) {
-      errors.push(`Missing required prompt file: ${file}`);
-    }
-  }
-
-  const requiredScriptFiles = [
-    ".agent/scripts/find-fqcn.py",
-    ".agent/scripts/search-reference.py",
-    ".agent/scripts/check-md-size.py",
-  ];
-
-  for (const file of requiredScriptFiles) {
-    if (!(await pathExists(join(rootDir, file)))) {
-      errors.push(`Missing required script file: ${file}`);
+      errors.push(`Missing required file: ${file}`);
     }
   }
 
@@ -3008,10 +3378,10 @@ async function runWorkflowCreateCommand(command: ParsedWorkflowCreateCommand): P
   const skippedFiles: string[] = [];
 
   if (await ensureDirectory(workflowPaths.workflowDir)) {
-    createdDirectories.push(`.agent/workflows/${workflow.id}`);
+    createdDirectories.push(`.flowness/workflows/${workflow.id}`);
   }
   if (await ensureDirectory(workflowPaths.stepsDir)) {
-    createdDirectories.push(`.agent/workflows/${workflow.id}/steps`);
+    createdDirectories.push(`.flowness/workflows/${workflow.id}/steps`);
   }
 
   const workflowSource = renderWorkflowScaffoldSource(workflow);
@@ -3021,9 +3391,9 @@ async function runWorkflowCreateCommand(command: ParsedWorkflowCreateCommand): P
     command.force,
   );
   if (workflowWriteResult === "written") {
-    createdFiles.push(`.agent/workflows/${workflow.id}/workflow.ts`);
+    createdFiles.push(`.flowness/workflows/${workflow.id}/workflow.ts`);
   } else {
-    skippedFiles.push(`.agent/workflows/${workflow.id}/workflow.ts`);
+    skippedFiles.push(`.flowness/workflows/${workflow.id}/workflow.ts`);
   }
 
   const readmeWriteResult = await writeTextFile(
@@ -3032,9 +3402,9 @@ async function runWorkflowCreateCommand(command: ParsedWorkflowCreateCommand): P
     command.force,
   );
   if (readmeWriteResult === "written") {
-    createdFiles.push(`.agent/workflows/${workflow.id}/README.md`);
+    createdFiles.push(`.flowness/workflows/${workflow.id}/README.md`);
   } else {
-    skippedFiles.push(`.agent/workflows/${workflow.id}/README.md`);
+    skippedFiles.push(`.flowness/workflows/${workflow.id}/README.md`);
   }
 
   const stepsReadmeWriteResult = await writeTextFile(
@@ -3043,9 +3413,9 @@ async function runWorkflowCreateCommand(command: ParsedWorkflowCreateCommand): P
     command.force,
   );
   if (stepsReadmeWriteResult === "written") {
-    createdFiles.push(`.agent/workflows/${workflow.id}/steps/README.md`);
+    createdFiles.push(`.flowness/workflows/${workflow.id}/steps/README.md`);
   } else {
-    skippedFiles.push(`.agent/workflows/${workflow.id}/steps/README.md`);
+    skippedFiles.push(`.flowness/workflows/${workflow.id}/steps/README.md`);
   }
 
   return {
@@ -3099,11 +3469,15 @@ function usage(): string {
     "",
     "Usage:",
     "  flowness init [path] [--name <project-name>] [--force]",
+    "  flowness run <request text> [--type <issue-type>] [--workflow <workflow-id>] [--force]",
     "  flowness issue:create [--title <title>] --type <issue-type> [--workflow <workflow-id>] [--description <text>] [--force]",
     "  flowness request:create <request text> [--type <issue-type>] [--workflow <workflow-id>] [--force]",
     "  flowness skill:run --id <skill-id> [--issue <issue-id>] [--input <text>]",
     "  flowness workflow:create [workflow-id] [--name <display-name>] [--force]",
     "  flowness workflow:validate [workflow-id]",
+    "  flowness step --issue <issue-id> [--approve]",
+    "  flowness status --issue <issue-id>",
+    "  flowness evidence:add --issue <issue-id> --kind <kind> --title <title> [--detail <text>] [--location <path>]",
     "  flowness workflow:step --issue <issue-id> [--approve]",
     "  flowness workflow:recover --issue <issue-id> --root-cause <text>",
     "  flowness decision:create --issue <issue-id> --title <title> --context <text> --decision <text> --alternatives <a,b> --consequences <x,y>",
@@ -3119,11 +3493,15 @@ function usage(): string {
     "",
     "Implemented commands:",
     "  init",
+    "  run",
     "  issue:create",
     "  request:create",
     "  skill:run",
     "  workflow:create",
     "  workflow:validate",
+    "  step",
+    "  status",
+    "  evidence:add",
     "  workflow:step",
     "  workflow:recover",
     "  decision:create",
@@ -3201,6 +3579,14 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
 
     if (parsed.kind === "workflow:recover") {
       return await runWorkflowRecoverCommand(parsed);
+    }
+
+    if (parsed.kind === "status") {
+      return await runStatusCommand(parsed);
+    }
+
+    if (parsed.kind === "evidence:add") {
+      return await runEvidenceAddCommand(parsed);
     }
 
     if (parsed.kind === "decision:create") {

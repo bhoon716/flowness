@@ -1,4 +1,4 @@
-import { joinPaths } from "./filesystem.js";
+import { joinPaths, pathExists } from "./filesystem.js";
 
 export interface FlownessWorkspacePaths {
   readonly rootDir: string;
@@ -13,32 +13,72 @@ export interface FlownessWorkspacePaths {
   readonly agentTemplatesDir: string;
   readonly agentPromptsDir: string;
   readonly agentSettingsDir: string;
+  readonly configDir: string;
+  readonly projectProfilePath: string;
+  readonly contextIndexPath: string;
+  readonly commandsPath: string;
+  readonly harnessManifestPath: string;
+  readonly stateDir: string;
   readonly codexDir: string;
   readonly flownessDir: string;
   readonly configPath: string;
+  readonly legacyAgentDir: string;
+  readonly legacyCodexDir: string;
+  readonly legacyConfigPath: string;
 }
 
 export function resolveWorkspacePaths(rootDir: string): FlownessWorkspacePaths {
   return {
     rootDir,
-    agentDir: joinPaths(rootDir, ".agent"),
-    agentConfigDir: joinPaths(rootDir, ".agent", "config"),
-    agentIssuesDir: joinPaths(rootDir, ".agent", "issues"),
-    agentLogsDir: joinPaths(rootDir, ".agent", "logs"),
-    agentWorkflowsDir: joinPaths(rootDir, ".agent", "workflows"),
-    agentRulesDir: joinPaths(rootDir, ".agent", "rules"),
-    agentSkillsDir: joinPaths(rootDir, ".agent", "skills"),
-    agentScriptsDir: joinPaths(rootDir, ".agent", "scripts"),
-    agentTemplatesDir: joinPaths(rootDir, ".agent", "templates"),
-    agentPromptsDir: joinPaths(rootDir, ".agent", "prompts"),
-    agentSettingsDir: joinPaths(rootDir, ".agent", "settings"),
+    agentDir: joinPaths(rootDir, ".flowness"),
+    agentConfigDir: joinPaths(rootDir, ".flowness", "config"),
+    agentIssuesDir: joinPaths(rootDir, ".flowness", "issues"),
+    agentLogsDir: joinPaths(rootDir, ".flowness", "logs"),
+    agentWorkflowsDir: joinPaths(rootDir, ".flowness", "workflows"),
+    agentRulesDir: joinPaths(rootDir, ".flowness", "rules"),
+    agentSkillsDir: joinPaths(rootDir, ".flowness", "skills"),
+    agentScriptsDir: joinPaths(rootDir, ".flowness", "scripts"),
+    agentTemplatesDir: joinPaths(rootDir, ".flowness", "templates"),
+    agentPromptsDir: joinPaths(rootDir, ".flowness", "prompts"),
+    agentSettingsDir: joinPaths(rootDir, ".flowness", "settings"),
+    configDir: joinPaths(rootDir, ".flowness", "config"),
+    projectProfilePath: joinPaths(rootDir, ".flowness", "project-profile.md"),
+    contextIndexPath: joinPaths(rootDir, ".flowness", "context-index.json"),
+    commandsPath: joinPaths(rootDir, ".flowness", "commands.json"),
+    harnessManifestPath: joinPaths(rootDir, ".flowness", "harness-manifest.json"),
+    stateDir: joinPaths(rootDir, ".flowness", "state"),
     codexDir: joinPaths(rootDir, ".codex"),
     flownessDir: joinPaths(rootDir, ".flowness"),
-    configPath: joinPaths(rootDir, ".flowness", "config.yaml"),
+    configPath: joinPaths(rootDir, ".flowness", "config", "project.yaml"),
+    legacyAgentDir: joinPaths(rootDir, ".agent"),
+    legacyCodexDir: joinPaths(rootDir, ".codex"),
+    legacyConfigPath: joinPaths(rootDir, ".agent", "config.yaml"),
   };
 }
 
 export function resolveIssuePaths(rootDir: string, issueId: string): {
+  readonly issueDir: string;
+  readonly issueFile: string;
+  readonly issueJsonFile: string;
+  readonly decompositionFile: string;
+  readonly decisionsDir: string;
+  readonly reviewsDir: string;
+  readonly workflowStateFile: string;
+  readonly logFile: string;
+} {
+  return {
+    issueDir: joinPaths(rootDir, ".flowness", "issues", issueId),
+    issueFile: joinPaths(rootDir, ".flowness", "issues", issueId, "issue.md"),
+    issueJsonFile: joinPaths(rootDir, ".flowness", "issues", issueId, "issue.json"),
+    decompositionFile: joinPaths(rootDir, ".flowness", "issues", issueId, "decomposition.json"),
+    decisionsDir: joinPaths(rootDir, ".flowness", "issues", issueId, "decisions"),
+    reviewsDir: joinPaths(rootDir, ".flowness", "issues", issueId, "reviews"),
+    workflowStateFile: joinPaths(rootDir, ".flowness", "issues", issueId, "workflow-state.json"),
+    logFile: joinPaths(rootDir, ".flowness", "logs", `${issueId}.md`),
+  };
+}
+
+export function resolveLegacyIssuePaths(rootDir: string, issueId: string): {
   readonly issueDir: string;
   readonly issueFile: string;
   readonly issueJsonFile: string;
@@ -60,6 +100,47 @@ export function resolveIssuePaths(rootDir: string, issueId: string): {
   };
 }
 
+export async function resolveExistingIssuePaths(rootDir: string, issueId: string): Promise<{
+  readonly issueDir: string;
+  readonly issueFile: string;
+  readonly issueJsonFile: string;
+  readonly decompositionFile: string;
+  readonly decisionsDir: string;
+  readonly reviewsDir: string;
+  readonly workflowStateFile: string;
+  readonly logFile: string;
+  readonly isLegacy: boolean;
+}> {
+  const current = resolveIssuePaths(rootDir, issueId);
+  if (
+    await pathExists(current.issueJsonFile)
+    || await pathExists(current.workflowStateFile)
+    || await pathExists(current.logFile)
+  ) {
+    return {
+      ...current,
+      isLegacy: false,
+    };
+  }
+
+  const legacy = resolveLegacyIssuePaths(rootDir, issueId);
+  if (
+    await pathExists(legacy.issueJsonFile)
+    || await pathExists(legacy.workflowStateFile)
+    || await pathExists(legacy.logFile)
+  ) {
+    return {
+      ...legacy,
+      isLegacy: true,
+    };
+  }
+
+  return {
+    ...current,
+    isLegacy: false,
+  };
+}
+
 export function resolveWorkflowScaffoldPaths(
   rootDir: string,
   workflowId: string,
@@ -70,10 +151,10 @@ export function resolveWorkflowScaffoldPaths(
   readonly workflowReadme: string;
 } {
   return {
-    workflowDir: joinPaths(rootDir, ".agent", "workflows", workflowId),
-    workflowFile: joinPaths(rootDir, ".agent", "workflows", workflowId, "workflow.ts"),
-    stepsDir: joinPaths(rootDir, ".agent", "workflows", workflowId, "steps"),
-    workflowReadme: joinPaths(rootDir, ".agent", "workflows", workflowId, "README.md"),
+    workflowDir: joinPaths(rootDir, ".flowness", "workflows", workflowId),
+    workflowFile: joinPaths(rootDir, ".flowness", "workflows", workflowId, "workflow.ts"),
+    stepsDir: joinPaths(rootDir, ".flowness", "workflows", workflowId, "steps"),
+    workflowReadme: joinPaths(rootDir, ".flowness", "workflows", workflowId, "README.md"),
   };
 }
 
@@ -85,8 +166,8 @@ export function resolveRuleScaffoldPaths(
   readonly ruleFile: string;
 } {
   return {
-    rulesDir: joinPaths(rootDir, ".agent", "rules"),
-    ruleFile: joinPaths(rootDir, ".agent", "rules", `${ruleId}.md`),
+    rulesDir: joinPaths(rootDir, ".flowness", "rules"),
+    ruleFile: joinPaths(rootDir, ".flowness", "rules", `${ruleId}.md`),
   };
 }
 
@@ -100,10 +181,10 @@ export function resolveSkillScaffoldPaths(
   readonly readmeFile: string;
 } {
   return {
-    skillsDir: joinPaths(rootDir, ".agent", "skills"),
-    skillDir: joinPaths(rootDir, ".agent", "skills", skillId),
-    skillFile: joinPaths(rootDir, ".agent", "skills", skillId, "SKILL.md"),
-    readmeFile: joinPaths(rootDir, ".agent", "skills", skillId, "README.md"),
+    skillsDir: joinPaths(rootDir, ".flowness", "skills"),
+    skillDir: joinPaths(rootDir, ".flowness", "skills", skillId),
+    skillFile: joinPaths(rootDir, ".flowness", "skills", skillId, "SKILL.md"),
+    readmeFile: joinPaths(rootDir, ".flowness", "skills", skillId, "README.md"),
   };
 }
 
@@ -115,8 +196,8 @@ export function resolveScriptScaffoldPaths(
   readonly scriptFile: string;
 } {
   return {
-    scriptsDir: joinPaths(rootDir, ".agent", "scripts"),
-    scriptFile: joinPaths(rootDir, ".agent", "scripts", scriptFileName),
+    scriptsDir: joinPaths(rootDir, ".flowness", "scripts"),
+    scriptFile: joinPaths(rootDir, ".flowness", "scripts", scriptFileName),
   };
 }
 
@@ -128,7 +209,7 @@ export function resolvePromptScaffoldPaths(
   readonly promptFile: string;
 } {
   return {
-    promptsDir: joinPaths(rootDir, ".agent", "prompts"),
-    promptFile: joinPaths(rootDir, ".agent", "prompts", `${promptId}.md`),
+    promptsDir: joinPaths(rootDir, ".flowness", "prompts"),
+    promptFile: joinPaths(rootDir, ".flowness", "prompts", `${promptId}.md`),
   };
 }

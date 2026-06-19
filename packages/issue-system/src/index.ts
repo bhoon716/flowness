@@ -13,10 +13,14 @@ import {
   ensureDirectory,
   defaultWorkflowMapping,
   issueTypeValues,
+  joinPaths,
   pathExists,
   readJsonFile,
+  resolveExistingIssuePaths,
+  resolveLegacyIssuePaths,
   resolveIssuePaths,
   resolveWorkspacePaths,
+  createIssueSlugFromRequest,
   toUpperSnake,
   writeJsonFile,
   writeTextFile,
@@ -36,7 +40,7 @@ export function createIssueId(sequence: number, title: string): string {
   }
 
   const sequencePart = String(sequence).padStart(3, "0");
-  const titlePart = toUpperSnake(title);
+  const titlePart = toUpperSnake(createIssueSlugFromRequest(title));
   return `ISSUE-${sequencePart}-${titlePart}`;
 }
 
@@ -58,7 +62,7 @@ export function createIssueRecord(
   const state = issue.state ?? "open";
   const workflowId = issue.workflowId ?? selectWorkflowForIssueType(issue.type);
   const directory = issue.directory ?? formatIssueDirectoryName(issue.id);
-  const logPath = issue.logPath ?? `.agent/logs/${issue.id}.md`;
+  const logPath = issue.logPath ?? `.flowness/logs/${issue.id}.md`;
 
   return {
     id: issue.id,
@@ -109,15 +113,26 @@ export function findNextIssueSequenceFromNames(names: readonly string[]): number
 }
 
 export async function findNextIssueSequence(rootDir: string): Promise<number> {
-  const issueDir = resolveWorkspacePaths(rootDir).agentIssuesDir;
-  if (!(await pathExists(issueDir))) {
-    return 1;
+  const issueDirs = [
+    resolveWorkspacePaths(rootDir).agentIssuesDir,
+    joinPaths(rootDir, ".agent", "issues"),
+  ];
+
+  const names = new Set<string>();
+  for (const issueDir of issueDirs) {
+    if (!(await pathExists(issueDir))) {
+      continue;
+    }
+
+    const entries = await readdir(issueDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        names.add(entry.name);
+      }
+    }
   }
 
-  const entries = await readdir(issueDir, { withFileTypes: true });
-  return findNextIssueSequenceFromNames(
-    entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
-  );
+  return findNextIssueSequenceFromNames([...names]);
 }
 
 function renderIssueMarkdown(
@@ -229,7 +244,7 @@ function renderIssueLogMarkdown(
     `# ${issueId} Log`,
     "",
     `- Issue: ${issueTitle}`,
-    `- Log File: .agent/logs/${issueId}.md`,
+    `- Log File: .flowness/logs/${issueId}.md`,
     "",
     `## ${entry.timestamp}`,
     "",
@@ -256,6 +271,7 @@ function renderReviewsReadme(issueId: string) {
 export interface CreateIssueWorkspaceInput {
   readonly rootDir: string;
   readonly title: string;
+  readonly intent?: string;
   readonly type: IssueType;
   readonly workflow: WorkflowDefinition;
   readonly description?: string;
@@ -284,7 +300,7 @@ export interface ReadIssueWorkspaceResult {
   readonly issue: IssueRecord;
   readonly workflowState: WorkflowState;
   readonly description: string | null;
-  readonly issuePaths: ReturnType<typeof resolveIssuePaths>;
+  readonly issuePaths: ReturnType<typeof resolveIssuePaths> & { readonly isLegacy: boolean };
 }
 
 export async function createIssueWorkspace(
@@ -296,12 +312,13 @@ export async function createIssueWorkspace(
 
   const createdAt = input.createdAt ?? new Date().toISOString();
   const sequence = input.sequence ?? await findNextIssueSequence(input.rootDir);
-  const issueId = createIssueId(sequence, input.title);
+  const issueId = createIssueId(sequence, input.intent ?? input.title);
   const issuePaths = resolveIssuePaths(input.rootDir, issueId);
+  const legacyIssuePaths = resolveLegacyIssuePaths(input.rootDir, issueId);
   const force = input.force ?? false;
   const createdFiles: string[] = [];
 
-  if (!force && await pathExists(issuePaths.issueDir)) {
+  if (!force && (await pathExists(issuePaths.issueDir) || await pathExists(legacyIssuePaths.issueDir))) {
     throw new Error(`Issue already exists: ${issueId}`);
   }
 
@@ -316,7 +333,7 @@ export async function createIssueWorkspace(
     state: input.initialState ?? "open",
     workflowId: input.workflow.id,
     directory: formatIssueDirectoryName(issueId),
-    logPath: `.agent/logs/${issueId}.md`,
+    logPath: `.flowness/logs/${issueId}.md`,
     createdAt,
     updatedAt: createdAt,
     ...(input.parentIssueId === undefined ? {} : { parentIssueId: input.parentIssueId }),
@@ -381,7 +398,7 @@ export async function createIssueWorkspace(
     false,
   );
   if (logWriteResult === "written") {
-    createdFiles.push(`.agent/logs/${issue.id}.md`);
+    createdFiles.push(`.flowness/logs/${issue.id}.md`);
   }
 
   return {
@@ -397,7 +414,7 @@ export async function readIssueWorkspace(
   rootDir: string,
   issueId: string,
 ): Promise<ReadIssueWorkspaceResult | null> {
-  const issuePaths = resolveIssuePaths(rootDir, issueId);
+  const issuePaths = await resolveExistingIssuePaths(rootDir, issueId);
   if (!(await pathExists(issuePaths.issueJsonFile)) || !(await pathExists(issuePaths.workflowStateFile))) {
     return null;
   }
@@ -423,7 +440,7 @@ export async function writeIssueWorkspaceState(
   workflowState: WorkflowState,
   description: string | null,
 ): Promise<ReadIssueWorkspaceResult> {
-  const issuePaths = resolveIssuePaths(rootDir, issue.id);
+  const issuePaths = await resolveExistingIssuePaths(rootDir, issue.id);
   const nextIssue: IssueRecord = {
     ...issue,
     state: deriveIssueState(workflowState),

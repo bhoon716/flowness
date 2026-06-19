@@ -202,6 +202,8 @@ export interface InitializeProjectResult {
   readonly rootDir: string;
   readonly projectName: string;
   readonly alreadyInitialized: boolean;
+  readonly gitInitialized: boolean;
+  readonly warnings: readonly string[];
   readonly createdDirectories: readonly string[];
   readonly createdFiles: readonly string[];
   readonly skippedFiles: readonly string[];

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analyzeRequest,
+  createIssueSlugFromRequest,
   createIssueTitleFromRequest,
   deriveIssueTypeForRequest,
   deriveWorkflowIdForRequest,
@@ -34,6 +35,13 @@ test("request analysis routes a feature request to one workflow-backed issue", (
   assert.match(analysis.clarificationQuestions[0]?.question ?? "", /outcome should we optimize/i);
   assert.ok(analysis.clarificationQuestions.every((question) => question.options.length >= 2));
   assert.ok(analysis.clarificationQuestions.every((question) => question.options.every((option) => option.pros.length > 0 && option.cons.length > 0)));
+});
+
+test("request analysis derives readable issue slugs from request intent", () => {
+  assert.equal(createIssueSlugFromRequest("회원가입 로그인 기능 만들어줘"), "signup-login");
+  assert.equal(createIssueSlugFromRequest("커뮤니티 MVP 기획해줘"), "community-mvp-plan");
+  assert.equal(createIssueSlugFromRequest("게시판 CRUD 만들어줘"), "board-crud");
+  assert.equal(createIssueSlugFromRequest("고객 지원"), "고객-지원");
 });
 
 test("request analysis routes MVP planning requests to the MVP workflow", () => {

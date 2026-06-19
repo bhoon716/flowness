@@ -12,11 +12,15 @@ import {
   runWorkflowStep,
 } from "./index.js";
 
-async function createIssueEvidenceFiles(rootDir: string, issueId: string, workflowState: unknown): Promise<void> {
-  const issueDir = join(rootDir, ".agent", "issues", issueId);
+async function createIssueEvidenceFiles(
+  rootDir: string,
+  issueId: string,
+  workflowState: { readonly currentStep: string },
+): Promise<void> {
+  const issueDir = join(rootDir, ".flowness", "issues", issueId);
   const decisionsDir = join(issueDir, "decisions");
   const reviewsDir = join(issueDir, "reviews");
-  const logDir = join(rootDir, ".agent", "logs");
+  const logDir = join(rootDir, ".flowness", "logs");
 
   await mkdir(decisionsDir, { recursive: true });
   await mkdir(reviewsDir, { recursive: true });
@@ -25,9 +29,25 @@ async function createIssueEvidenceFiles(rootDir: string, issueId: string, workfl
   await writeFile(join(issueDir, "issue.md"), "# Issue\n", "utf8");
   await writeFile(join(issueDir, "issue.json"), JSON.stringify({ issue: { id: issueId } }, null, 2), "utf8");
   await writeFile(join(issueDir, "workflow-state.json"), `${JSON.stringify(workflowState, null, 2)}\n`, "utf8");
-  await writeFile(join(logDir, `${issueId}.md`), "# Log\n", "utf8");
   await writeFile(join(decisionsDir, "README.md"), "# Decisions\n", "utf8");
   await writeFile(join(reviewsDir, "README.md"), "# Reviews\n", "utf8");
+  await writeFile(join(logDir, `${issueId}.md`), [
+    `# ${issueId} Log`,
+    "",
+    "- Issue: Issue",
+    `- Log File: ${issueId}.md`,
+    "",
+    "## 2026-06-19T00:00:00.000Z",
+    "",
+    "- Step: Issue Created",
+    "- Actions:",
+    "  - Seeded workflow evidence.",
+    "- Evidence:",
+    "  - None",
+    "- Summary: Seeded workflow evidence.",
+    `- Next Step: ${workflowState.currentStep}`,
+    "",
+  ].join("\n"), "utf8");
 }
 
 test("loadWorkflowDefinitionFromFile supports python workflow blueprints", async () => {

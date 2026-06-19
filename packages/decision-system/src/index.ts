@@ -5,9 +5,9 @@ import {
   pathExists,
   readTextFile,
   slugify,
+  resolveExistingIssuePaths,
   writeTextFile,
 } from "@flowness-labs/core";
-import { resolveIssuePaths } from "@flowness-labs/core";
 
 export function formatDecisionFileName(
   sequence: number,
@@ -113,7 +113,7 @@ export async function findNextDecisionSequence(
   rootDir: string,
   issueId: string,
 ): Promise<number> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   if (!(await pathExists(paths.decisionsDir))) {
     return 1;
   }
@@ -131,7 +131,7 @@ export async function writeDecisionDocumentToIssue(
   document: Omit<DecisionDocument, "fileName"> & { readonly sequence?: number },
   force = false,
 ): Promise<DecisionDocument & { readonly filePath: string }> {
-  const paths = resolveIssuePaths(rootDir, document.issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, document.issueId);
   await mkdir(paths.decisionsDir, { recursive: true });
   const sequence = document.sequence ?? await findNextDecisionSequence(rootDir, document.issueId);
   const fullDocument = createDecisionDocument({
@@ -151,7 +151,7 @@ export async function readDecisionDocument(
   issueId: string,
   fileName: string,
 ): Promise<string | null> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   const filePath = joinPaths(paths.decisionsDir, fileName);
   if (!(await pathExists(filePath))) {
     return null;
@@ -164,7 +164,7 @@ export async function listDecisionDocuments(
   rootDir: string,
   issueId: string,
 ): Promise<readonly string[]> {
-  const paths = resolveIssuePaths(rootDir, issueId);
+  const paths = await resolveExistingIssuePaths(rootDir, issueId);
   if (!(await pathExists(paths.decisionsDir))) {
     return [];
   }

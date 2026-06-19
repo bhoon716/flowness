@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,29 +63,67 @@ async function main() {
   ensureOutputIncludes(helpOutput, "Implemented commands:", "CLI help");
   ensureOutputIncludes(helpOutput, "flowness validate", "CLI help");
   ensureOutputIncludes(helpOutput, "flowness init", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness run", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness status", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness evidence:add", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness step", "CLI help");
 
   const sandboxRoot = mkdtempSync(join(tmpdir(), "flowness-audit-"));
   try {
     const initOutput = runCommand("init-sandbox", flownessCommand, ["init", sandboxRoot, "--name", "audit-sandbox"]);
     ensureOutputIncludes(initOutput, "Initialized Flowness project", "init output");
+    ensureOutputIncludes(initOutput, "Initialized a git repository", "init output");
 
     ensureFile(join(sandboxRoot, "AGENTS.md"), "init scaffold AGENTS.md");
-    ensureFile(join(sandboxRoot, ".codex/hooks.json"), "init scaffold hooks");
-    ensureFile(join(sandboxRoot, ".flowness/config.yaml"), "init scaffold config");
-    ensureFile(join(sandboxRoot, ".agent/README.md"), "init scaffold agent README");
-    ensureFile(join(sandboxRoot, ".agent/prompts/core-agent.md"), "init scaffold core prompt");
-    ensureFile(join(sandboxRoot, ".agent/prompts/review-agent.md"), "init scaffold review prompt");
-    ensureFile(join(sandboxRoot, ".agent/scripts/flowness-runner.ts"), "init scaffold runner script");
-    ensureFile(join(sandboxRoot, ".agent/scripts/workflow-guard.ts"), "init scaffold workflow guard");
-    ensureFile(join(sandboxRoot, ".agent/scripts/check-md-size.py"), "init scaffold script");
-    ensureFile(join(sandboxRoot, ".codex/hooks/package.json"), "init scaffold hook package");
-    ensureFile(join(sandboxRoot, ".codex/hooks/user-prompt-submit.ts"), "init scaffold prompt hook");
-    ensureFile(join(sandboxRoot, ".agent/workflows/feature-development/README.md"), "init scaffold feature workflow");
+    ensureFile(join(sandboxRoot, ".flowness/config/project.yaml"), "init scaffold config");
+    ensureFile(join(sandboxRoot, ".flowness/project-profile.md"), "init scaffold project profile");
+    ensureFile(join(sandboxRoot, ".flowness/context-index.json"), "init scaffold context index");
+    ensureFile(join(sandboxRoot, ".flowness/commands.json"), "init scaffold commands");
+    ensureFile(join(sandboxRoot, ".flowness/harness-manifest.json"), "init scaffold harness manifest");
+    ensureFile(join(sandboxRoot, ".flowness/rules/commit-policy.md"), "init scaffold commit policy");
+    ensureFile(join(sandboxRoot, ".flowness/scripts/flowness-runner.ts"), "init scaffold runner script");
+    ensureFile(join(sandboxRoot, ".flowness/scripts/workflow-guard.ts"), "init scaffold workflow guard");
+    ensureFile(join(sandboxRoot, ".flowness/scripts/check-md-size.py"), "init scaffold script");
+    ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/README.md"), "init scaffold feature workflow");
+    ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/07-commit.md"), "init scaffold feature commit step");
+    ensureFile(join(sandboxRoot, ".flowness/workflows/mvp-planning/08-commit.md"), "init scaffold mvp commit step");
+    ensureFile(join(sandboxRoot, ".flowness/workflows/mvp-planning/09-close.md"), "init scaffold mvp close step");
+
+    if (!existsSync(join(sandboxRoot, ".git"))) {
+      throw new Error("git init did not create a .git directory.");
+    }
+
+    if (existsSync(join(sandboxRoot, ".agent")) || existsSync(join(sandboxRoot, ".codex"))) {
+      throw new Error("init created legacy .agent or .codex directories.");
+    }
+
+    const commandsJson = readFileSync(join(sandboxRoot, ".flowness/commands.json"), "utf8");
+    ensureOutputIncludes(commandsJson, "flowness run", "commands.json");
+    ensureOutputIncludes(commandsJson, "flowness status", "commands.json");
+    ensureOutputIncludes(commandsJson, "flowness evidence:add", "commands.json");
+
+    const manifestJson = readFileSync(join(sandboxRoot, ".flowness/harness-manifest.json"), "utf8");
+    ensureOutputIncludes(manifestJson, "\"version\": \"0.1.4\"", "harness manifest");
+    ensureOutputIncludes(manifestJson, ".flowness/state", "harness manifest");
+
+    const contextIndexJson = readFileSync(join(sandboxRoot, ".flowness/context-index.json"), "utf8");
+    ensureOutputIncludes(contextIndexJson, ".flowness/project-profile.md", "context index");
+    ensureOutputIncludes(contextIndexJson, ".flowness/commands.json", "context index");
 
     const validateOutput = runCommand("validate-sandbox", flownessCommand, ["validate"], sandboxRoot);
     ensureOutputIncludes(validateOutput, "Workflow validation passed for workspace.", "validate output");
   } finally {
     rmSync(sandboxRoot, { recursive: true, force: true });
+  }
+
+  const legacyRoot = mkdtempSync(join(tmpdir(), "flowness-legacy-"));
+  try {
+    mkdirSync(join(legacyRoot, ".agent"), { recursive: true });
+    const legacyOutput = runCommand("legacy-sandbox", flownessCommand, ["init", legacyRoot, "--name", "legacy-sandbox"]);
+    ensureOutputIncludes(legacyOutput, "Legacy .agent workspace files were detected", "legacy init output");
+    ensureFile(join(legacyRoot, ".flowness/config/project.yaml"), "legacy init config");
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true });
   }
 
   ensureFile(join(repoRoot, ".agent/audit/audit-log.md"), "audit log");

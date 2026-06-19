@@ -1,5 +1,5 @@
 import type { IssuePlan, IssueType } from "./types.js";
-import { toUpperSnake } from "./filesystem.js";
+import { slugifyReadable } from "./filesystem.js";
 
 export type RequestCategory =
   | "casual_or_question"
@@ -37,6 +37,7 @@ export interface RequestAnalysis {
   readonly issueType?: IssueType;
   readonly workflowId?: string;
   readonly suggestedTitle: string;
+  readonly intentSlug: string;
   readonly reason: string;
   readonly needsClarification: boolean;
   readonly clarificationQuestions: readonly ClarificationQuestion[];
@@ -88,6 +89,132 @@ const multiIssueHints: readonly RegExp[] = [
   /,.*,/,
   /\b(and|plus|then|also|along with|separately|multiple|several|split)\b/i,
   /(그리고|및|추가로|또는|별도로|여러|복수)/i,
+];
+
+interface IntentSlugRule {
+  readonly slug: string;
+  readonly patterns: readonly RegExp[];
+}
+
+const intentSlugRules: readonly IntentSlugRule[] = [
+  {
+    slug: "community",
+    patterns: [
+      /커뮤니티/i,
+      /\bcommunity\b/i,
+    ],
+  },
+  {
+    slug: "signup",
+    patterns: [
+      /회원가입/i,
+      /\bsign(?:[-\s]?up)?\b/i,
+      /\bregister(?:ation)?\b/i,
+    ],
+  },
+  {
+    slug: "login",
+    patterns: [
+      /로그인/i,
+      /\blog(?:[-\s]?in)?\b/i,
+      /\bsign(?:[-\s]?in)\b/i,
+      /\bauth(?:entication)?\b/i,
+    ],
+  },
+  {
+    slug: "board",
+    patterns: [
+      /게시판/i,
+      /\bboard\b/i,
+      /\bforum\b/i,
+    ],
+  },
+  {
+    slug: "crud",
+    patterns: [
+      /\bcrud\b/i,
+    ],
+  },
+  {
+    slug: "mvp",
+    patterns: [
+      /\bmvp\b/i,
+      /minimum viable product/i,
+    ],
+  },
+  {
+    slug: "plan",
+    patterns: [
+      /기획/i,
+      /\bplan(?:ning)?\b/i,
+      /\broadmap\b/i,
+      /\bstrategy\b/i,
+    ],
+  },
+  {
+    slug: "onboarding",
+    patterns: [
+      /온보딩/i,
+      /\bonboarding\b/i,
+    ],
+  },
+  {
+    slug: "search",
+    patterns: [
+      /검색/i,
+      /\bsearch\b/i,
+    ],
+  },
+  {
+    slug: "profile",
+    patterns: [
+      /프로필/i,
+      /\bprofile\b/i,
+    ],
+  },
+  {
+    slug: "payment",
+    patterns: [
+      /결제/i,
+      /\bpayment\b/i,
+      /\bcheckout\b/i,
+    ],
+  },
+  {
+    slug: "notification",
+    patterns: [
+      /알림/i,
+      /\bnotification\b/i,
+    ],
+  },
+  {
+    slug: "password-reset",
+    patterns: [
+      /비밀번호\s*재설정/i,
+      /\bpassword reset\b/i,
+      /\breset password\b/i,
+    ],
+  },
+  {
+    slug: "dashboard",
+    patterns: [
+      /대시보드/i,
+      /\bdashboard\b/i,
+    ],
+  },
+  {
+    slug: "api",
+    patterns: [
+      /\bapi\b/i,
+    ],
+  },
+  {
+    slug: "ui",
+    patterns: [
+      /\bui\b/i,
+      /\bux\b/i,
+    ],
+  },
 ];
 
 function normalizeRequest(request: string): string {
@@ -152,6 +279,68 @@ function stripTrailingNoise(value: string): string {
   return value.replace(/\b(feature|task|project|work item|initiative|request)\b$/i, "").trim();
 }
 
+function stripIntentNoise(value: string): string {
+  return value
+    .replace(/^(please\s+)?(can you\s+|could you\s+|would you\s+|will you\s+|do you mind\s+)?/i, "")
+    .replace(/^(build|create|make|add|implement|ship|wire up|integrate|extend|update|modify|change|introduce|document|write|design|research|investigate|analyze|analyse|fix|refactor|split|decompose|plan|prepare|review|support|launch|release|set up|setup|도와줘|해줘|만들어줘|추가해줘|구현해줘|수정해줘|고쳐줘|리팩터링해줘|기획해줘|작성해줘|설계해줘)\s+/i, "")
+    .replace(/^(the|a|an|이|그|저)\s+/i, "")
+    .replace(/\b(feature|features|task|tasks|project|projects|request|requests|기능|작업|프로젝트|요청)\b$/i, "")
+    .trim();
+}
+
+function findRuleMatchIndex(request: string, patterns: readonly RegExp[]): number | null {
+  let bestIndex: number | null = null;
+  for (const pattern of patterns) {
+    const match = request.match(pattern);
+    if (match === null || match.index === undefined) {
+      continue;
+    }
+
+    if (bestIndex === null || match.index < bestIndex) {
+      bestIndex = match.index;
+    }
+  }
+
+  return bestIndex;
+}
+
+function deriveIntentSlug(request: string, suggestedTitle: string, category: RequestCategory): string {
+  const normalized = normalizeRequest(request);
+  const ruleMatches = intentSlugRules
+    .map((rule, order) => ({
+      slug: rule.slug,
+      order,
+      index: findRuleMatchIndex(normalized, rule.patterns),
+    }))
+    .filter((match): match is { readonly slug: string; readonly order: number; readonly index: number } => match.index !== null)
+    .sort((left, right) => {
+      if (left.index !== right.index) {
+        return left.index - right.index;
+      }
+      return left.order - right.order;
+    })
+    .map((match) => match.slug);
+
+  const uniqueRules = Array.from(new Set(ruleMatches));
+  const categoryTokens: string[] = [];
+  if ((category === "mvp_or_product_planning" || category === "multi_issue_project") && !uniqueRules.includes("plan")) {
+    categoryTokens.push("plan");
+  }
+
+  const tokens = Array.from(new Set([...uniqueRules, ...categoryTokens]));
+  if (tokens.length > 0) {
+    return tokens.join("-");
+  }
+
+  const cleanedTitle = stripIntentNoise(suggestedTitle.length > 0 ? suggestedTitle : normalized);
+  const readable = slugifyReadable(cleanedTitle);
+  if (readable !== "unnamed") {
+    return readable;
+  }
+
+  return slugifyReadable(normalized);
+}
+
 function toTitleCase(value: string): string {
   return value
     .trim()
@@ -169,7 +358,7 @@ function toSuggestedTitle(request: string): string {
   }
 
   const [firstSegment = normalized] = splitRequestSegments(normalized);
-  const cleaned = stripTrailingNoise(stripLeadingActionWords(firstSegment)).trim();
+  const cleaned = stripTrailingNoise(stripIntentNoise(stripLeadingActionWords(firstSegment))).trim();
   if (cleaned.length === 0) {
     return "Request";
   }
@@ -727,6 +916,7 @@ export function analyzeRequest(request: string): RequestAnalysis {
       category: "casual_or_question",
       requiresIssue: false,
       suggestedTitle,
+      intentSlug: "request",
       reason: "This is a casual message or question that does not need an issue.",
       needsClarification: false,
       clarificationQuestions: [],
@@ -750,6 +940,7 @@ export function analyzeRequest(request: string): RequestAnalysis {
   const workflowId = categoryToWorkflowId(category);
   const issuePlan = buildIssuePlan(category, normalizedRequest, suggestedTitle);
   const clarificationQuestions = buildClarificationQuestions(category, normalizedRequest);
+  const requestIntentSlug = deriveIntentSlug(normalizedRequest, suggestedTitle, category);
 
   const reasonByCategory: Record<Exclude<RequestCategory, "casual_or_question">, string> = {
     single_development_task: "This is a single development task that should be routed to one workflow.",
@@ -770,6 +961,7 @@ export function analyzeRequest(request: string): RequestAnalysis {
     issueType,
     ...(workflowId === undefined ? {} : { workflowId }),
     suggestedTitle,
+    intentSlug: requestIntentSlug,
     reason: reasonByCategory[actionableCategory],
     needsClarification: clarificationQuestions.length > 0,
     clarificationQuestions,
@@ -812,7 +1004,7 @@ export function deriveWorkflowIdForRequest(request: string): string | undefined 
 }
 
 export function createIssueSlugFromRequest(request: string): string {
-  return toUpperSnake(createIssueTitleFromRequest(request));
+  return analyzeRequest(request).intentSlug;
 }
 
 export function createIssueTitleFromRequest(request: string): string {

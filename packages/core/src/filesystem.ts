@@ -4,14 +4,24 @@ import { dirname, join } from "node:path";
 
 export function slugify(value: string): string {
   return value
+    .normalize("NFKC")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "unnamed";
 }
 
+export function slugifyReadable(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "") || "unnamed";
+}
+
 export function toUpperSnake(value: string): string {
-  const normalized = slugify(value).replace(/-/g, "-").toUpperCase();
+  const normalized = slugifyReadable(value).replace(/-/g, "-").toUpperCase();
   if (normalized !== "UNNAMED") {
     return normalized;
   }
