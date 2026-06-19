@@ -1,0 +1,23 @@
+{
+  "name": "@flowness/monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Flowness monorepo scaffold and CLI workspace.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "npm run build && node --test $(find packages -path '*/dist/*.test.js' | sort)",
+    "typecheck": "tsc -b --pretty false",
+    "link:cli": "npm run build && npm link --force --workspace packages/cli"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

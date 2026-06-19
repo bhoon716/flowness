@@ -1,0 +1,34 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../decision-system"
+    },
+    {
+      "path": "../evidence-system"
+    },
+    {
+      "path": "../issue-system"
+    },
+    {
+      "path": "../log-system"
+    },
+    {
+      "path": "../review-system"
+    },
+    {
+      "path": "../workflow-engine"
+    }
+  ]
+}

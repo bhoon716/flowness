@@ -1,0 +1,37 @@
+node_modules
+dist
+packages/*/src/*.js
+packages/*/src/*.d.ts
+packages/*/src/*.map
+*.tsbuildinfo
+.DS_Store
+.flowness
+.codex
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testing
+coverage
+.nyc_output
+
+# Temporary files
+tmp/
+temp/

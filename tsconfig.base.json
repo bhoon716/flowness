@@ -1,0 +1,52 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@flowness/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@flowness/config-system": [
+        "packages/config-system/src/index.ts"
+      ],
+      "@flowness/decision-system": [
+        "packages/decision-system/src/index.ts"
+      ],
+      "@flowness/evidence-system": [
+        "packages/evidence-system/src/index.ts"
+      ],
+      "@flowness/issue-system": [
+        "packages/issue-system/src/index.ts"
+      ],
+      "@flowness/log-system": [
+        "packages/log-system/src/index.ts"
+      ],
+      "@flowness/review-system": [
+        "packages/review-system/src/index.ts"
+      ],
+      "@flowness/templates": [
+        "packages/templates/src/index.ts"
+      ],
+      "@flowness/workflow-engine": [
+        "packages/workflow-engine/src/index.ts"
+      ],
+      "flowness": [
+        "packages/cli/src/index.ts"
+      ]
+    }
+  }
+}
+

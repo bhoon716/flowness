@@ -1,0 +1,36 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/config-system"
+    },
+    {
+      "path": "./packages/decision-system"
+    },
+    {
+      "path": "./packages/evidence-system"
+    },
+    {
+      "path": "./packages/issue-system"
+    },
+    {
+      "path": "./packages/log-system"
+    },
+    {
+      "path": "./packages/review-system"
+    },
+    {
+      "path": "./packages/templates"
+    },
+    {
+      "path": "./packages/workflow-engine"
+    },
+    {
+      "path": "./packages/cli"
+    }
+  ]
+}
+
