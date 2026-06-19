@@ -42,6 +42,7 @@ export function resolveIssuePaths(rootDir: string, issueId: string): {
   readonly issueDir: string;
   readonly issueFile: string;
   readonly issueJsonFile: string;
+  readonly decompositionFile: string;
   readonly decisionsDir: string;
   readonly reviewsDir: string;
   readonly workflowStateFile: string;
@@ -51,6 +52,7 @@ export function resolveIssuePaths(rootDir: string, issueId: string): {
     issueDir: joinPaths(rootDir, ".agent", "issues", issueId),
     issueFile: joinPaths(rootDir, ".agent", "issues", issueId, "issue.md"),
     issueJsonFile: joinPaths(rootDir, ".agent", "issues", issueId, "issue.json"),
+    decompositionFile: joinPaths(rootDir, ".agent", "issues", issueId, "decomposition.json"),
     decisionsDir: joinPaths(rootDir, ".agent", "issues", issueId, "decisions"),
     reviewsDir: joinPaths(rootDir, ".agent", "issues", issueId, "reviews"),
     workflowStateFile: joinPaths(rootDir, ".agent", "issues", issueId, "workflow-state.json"),

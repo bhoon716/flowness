@@ -10,6 +10,20 @@ import {
   writeProjectConfig,
 } from "./config.js";
 import type {
+  ProjectAnalysis,
+} from "./init-scaffold.js";
+import {
+  renderGeneratedAgentsMarkdown,
+  renderGeneratedConfigArtifacts,
+  renderGeneratedRuleArtifacts,
+  renderGeneratedScriptArtifacts,
+  renderGeneratedScriptsReadmeMarkdown,
+  renderGeneratedSkillArtifacts,
+  renderGeneratedTemplateArtifacts,
+  renderGeneratedWorkflowArtifacts,
+  renderProjectAnalysis,
+} from "./init-scaffold.js";
+import type {
   InitializeProjectOptions,
   InitializeProjectResult,
   ScaffoldDirectory,
@@ -52,31 +66,6 @@ const agentReadmes: ReadonlyArray<{ path: string; title: string; body: string }>
     path: ".agent/logs/README.md",
     title: "logs",
     body: "Append-only logs for every issue and workflow step live here.",
-  },
-  {
-    path: ".agent/workflows/README.md",
-    title: "workflows",
-    body: "Code-based workflow definitions and workflow assets live here.",
-  },
-  {
-    path: ".agent/rules/README.md",
-    title: "rules",
-    body: "Global operating rules live here.",
-  },
-  {
-    path: ".agent/skills/README.md",
-    title: "skills",
-    body: "Reusable task skills live here.",
-  },
-  {
-    path: ".agent/scripts/README.md",
-    title: "scripts",
-    body: "Automation scripts live here.",
-  },
-  {
-    path: ".agent/templates/README.md",
-    title: "templates",
-    body: "Reusable templates live here.",
   },
   {
     path: ".agent/prompts/README.md",
@@ -308,59 +297,8 @@ function renderReadme(title: string, body: string): string {
   return `# ${title}\n\n${body}\n`;
 }
 
-function renderAgentsMarkdown(projectName: string): string {
-  return [
-    "# AGENTS",
-    "",
-    "This repository's operating guide for agents. Read the local files first: `README.md`, package scripts, and any deeper `AGENTS.md` files.",
-    "",
-    "## Project overview",
-    `- Project: ${projectName}`,
-    "- Add a one-paragraph description of the repo here.",
-    "",
-    "## Repository map",
-    "- `packages/` package code",
-    "- `docs/` design and user docs",
-    "- `tests/` test fixtures and helpers",
-    "- `.agent/` workflow artifacts, if this project uses them",
-    "- `scripts/` automation and tooling",
-    "",
-    "## Setup",
-    "- Install: `npm install` or the repo's documented install command.",
-    "- Build: `npm run build` or the repo's documented build command.",
-    "- Test: `npm test` or the repo's documented test command.",
-    "- Lint: `npm run lint` or the repo's documented lint command.",
-    "",
-    "## Conventions",
-    "- Match existing style, naming, and folder layout.",
-    "- Keep changes small and localized.",
-    "- Update docs when behavior changes.",
-    "",
-    "## Safety",
-    "- Inspect files before editing.",
-    "- Do not overwrite user changes or generated artifacts without checking.",
-    "- Avoid destructive commands unless explicitly requested.",
-    "",
-    "## Documentation",
-    "- Keep README and docs in sync with behavior changes.",
-    "- Prefer links to deeper docs instead of long duplicated instructions.",
-    "",
-    "## Testing",
-    "- Run the affected checks before handing off.",
-    "- Add or update tests for behavior changes.",
-    "- Do not claim success without command evidence.",
-    "",
-    "## Branch / PR",
-    "- Use the repository's established branch flow.",
-    "- Open a PR with summary, tests run, and any known risks.",
-    "- Link the relevant issue or task when one exists.",
-    "",
-    "## Questions",
-    "- Ask one concise question when requirements, ownership, or expected behavior are unclear.",
-    "",
-    "## Project-specific rules",
-    "- Put deeper or exception rules in nested `AGENTS.md` files or linked docs.",
-  ].join("\n") + "\n";
+function renderAgentsMarkdown(analysis: ProjectAnalysis): string {
+  return renderGeneratedAgentsMarkdown(analysis);
 }
 
 function renderCodexHooksJson(): string {
@@ -379,7 +317,6 @@ export async function initializeProject(
   options: InitializeProjectOptions,
 ): Promise<InitializeProjectResult> {
   const rootDir = join(options.rootDir);
-  const projectName = options.projectName ?? rootDir.split(/[/\\]/).filter(Boolean).at(-1) ?? "flowness";
   const force = options.force ?? false;
   const paths = resolveWorkspacePaths(rootDir);
   const createdDirectories: string[] = [];
@@ -394,6 +331,8 @@ export async function initializeProject(
   }
 
   const alreadyInitialized = await pathExists(paths.configPath);
+  const analysis = await renderProjectAnalysis(rootDir, options.projectName);
+  const projectName = analysis.projectName;
 
   const config = createDefaultProjectConfig(projectName);
   const configWriteResult = await writeProjectConfig(rootDir, config, force);
@@ -406,7 +345,7 @@ export async function initializeProject(
   const agentsPath = join(rootDir, "AGENTS.md");
   const agentsWriteResult = await writeTextFile(
     agentsPath,
-    renderAgentsMarkdown(projectName),
+    renderAgentsMarkdown(analysis),
     force,
   );
   if (agentsWriteResult === "written") {
@@ -451,6 +390,95 @@ export async function initializeProject(
       createdFiles.push(promptFile.path);
     } else {
       skippedFiles.push(promptFile.path);
+    }
+  }
+
+  for (const configFile of renderGeneratedConfigArtifacts(analysis)) {
+    const configWriteResult = await writeTextFile(
+      join(rootDir, configFile.path),
+      configFile.content,
+      force,
+    );
+    if (configWriteResult === "written") {
+      createdFiles.push(configFile.path);
+    } else {
+      skippedFiles.push(configFile.path);
+    }
+  }
+
+  const scriptsReadmeWriteResult = await writeTextFile(
+    join(rootDir, ".agent/scripts/README.md"),
+    renderGeneratedScriptsReadmeMarkdown(analysis),
+    force,
+  );
+  if (scriptsReadmeWriteResult === "written") {
+    createdFiles.push(".agent/scripts/README.md");
+  } else {
+    skippedFiles.push(".agent/scripts/README.md");
+  }
+
+  for (const scriptFile of renderGeneratedScriptArtifacts(analysis)) {
+    const scriptWriteResult = await writeTextFile(
+      join(rootDir, scriptFile.path),
+      scriptFile.content,
+      force,
+    );
+    if (scriptWriteResult === "written") {
+      createdFiles.push(scriptFile.path);
+    } else {
+      skippedFiles.push(scriptFile.path);
+    }
+  }
+
+  for (const ruleFile of renderGeneratedRuleArtifacts(analysis)) {
+    const ruleWriteResult = await writeTextFile(
+      join(rootDir, ruleFile.path),
+      ruleFile.content,
+      force,
+    );
+    if (ruleWriteResult === "written") {
+      createdFiles.push(ruleFile.path);
+    } else {
+      skippedFiles.push(ruleFile.path);
+    }
+  }
+
+  for (const skillFile of renderGeneratedSkillArtifacts(analysis)) {
+    const skillWriteResult = await writeTextFile(
+      join(rootDir, skillFile.path),
+      skillFile.content,
+      force,
+    );
+    if (skillWriteResult === "written") {
+      createdFiles.push(skillFile.path);
+    } else {
+      skippedFiles.push(skillFile.path);
+    }
+  }
+
+  for (const templateFile of renderGeneratedTemplateArtifacts(analysis)) {
+    const templateWriteResult = await writeTextFile(
+      join(rootDir, templateFile.path),
+      templateFile.content,
+      force,
+    );
+    if (templateWriteResult === "written") {
+      createdFiles.push(templateFile.path);
+    } else {
+      skippedFiles.push(templateFile.path);
+    }
+  }
+
+  for (const workflowFile of renderGeneratedWorkflowArtifacts(analysis)) {
+    const workflowWriteResult = await writeTextFile(
+      join(rootDir, workflowFile.path),
+      workflowFile.content,
+      force,
+    );
+    if (workflowWriteResult === "written") {
+      createdFiles.push(workflowFile.path);
+    } else {
+      skippedFiles.push(workflowFile.path);
     }
   }
 

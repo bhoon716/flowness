@@ -114,6 +114,48 @@ test("runWorkflowStep handles human gates, transitions, and failure recovery", a
   assert.equal(recovered.state.currentStep, "Implement");
 });
 
+test("runWorkflowStep blocks close steps that do not provide evidence", async () => {
+  const workflow = defineWorkflow({
+    id: "close-evidence",
+    name: "Close Evidence",
+    steps: [
+      {
+        name: "Close",
+        preconditions: [],
+        successConditions: ["Evidence is recorded."],
+        next: null,
+        execute: async () => ({
+          summary: "Attempted to close without evidence.",
+          evidence: [],
+          nextStep: null,
+        }),
+      },
+    ],
+  });
+
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-close-evidence-"));
+  const initialState = createInitialWorkflowState(workflow, "2026-06-19T00:00:00.000Z");
+  const context = createWorkflowStepContext({
+    issueId: "ISSUE-001-CLOSE",
+    issueType: "feature",
+    workflowId: workflow.id,
+    stepName: "Close",
+    rootDir,
+    state: initialState,
+  });
+
+  const outcome = await runWorkflowStep({
+    workflow,
+    state: initialState,
+    context,
+    timestamp: "2026-06-19T00:01:00.000Z",
+  });
+
+  assert.equal(outcome.status, "blocked");
+  assert.equal(outcome.state.blocked, true);
+  assert.equal(outcome.state.currentStep, "Close");
+});
+
 test("runWorkflowStep rejects skipped workflow states", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "flowness-skip-"));
   const oneEvidencePath = join(rootDir, "one-evidence.md");
