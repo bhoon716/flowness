@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "npm run build && node --test $(find packages -path '*/dist/*.test.js' | sort)",
+    "audit": "node scripts/audit-v0.1.mjs",
     "typecheck": "tsc -b --pretty false",
     "link:cli": "npm run build && npm link --force --workspace packages/cli"
   },
