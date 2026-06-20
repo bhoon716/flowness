@@ -25,6 +25,11 @@ All notable changes to Flowness are recorded here.
 ### Security
 - None.
 
+## [0.2.1] - 2026-06-21
+
+### Fixed
+- Add `typescript` dependency to `@flowness-labs/workflow-engine` package metadata to fix global CLI installation failures.
+
 ## [0.2.0] - 2026-06-21
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "@flowness-labs/templates",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,7 +14,7 @@
     "dist"
   ],
   "dependencies": {
-    "@flowness-labs/core": "^0.2.0"
+    "@flowness-labs/core": "^0.2.1"
   },
   "scripts": {
     "build": "tsc -b",
