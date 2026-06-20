@@ -49,9 +49,22 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.ok(result.createdFiles.includes(".flowness/context-index.json"));
   assert.ok(result.createdFiles.includes(".flowness/commands.json"));
   assert.ok(result.createdFiles.includes(".flowness/harness-manifest.json"));
+  assert.ok(result.createdFiles.includes(".flowness/navigation.md"));
+  assert.ok(result.createdFiles.includes(".flowness/state/active-issue.md"));
+  assert.ok(result.createdFiles.includes(".flowness/findings/README.md"));
+  assert.ok(result.createdFiles.includes(".flowness/templates/review-template.md"));
+  assert.ok(result.createdFiles.includes(".flowness/templates/finding-template.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/git.md"));
   assert.ok(result.createdFiles.includes(".flowness/rules/commit-policy.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/project-overrides.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/change-log.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/tech/README.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/tech/react.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/tech/typescript.md"));
   assert.ok(result.createdFiles.includes(".flowness/scripts/flowness-runner.ts"));
   assert.ok(result.createdFiles.includes(".flowness/scripts/workflow-guard.ts"));
+  assert.ok(result.createdFiles.includes("docs/PRD.md"));
+  assert.ok(result.createdFiles.includes("docs/ARD.md"));
   assert.ok(result.createdFiles.includes(".flowness/workflows/feature-development/07-commit.md"));
   assert.ok(result.createdFiles.includes(".flowness/workflows/mvp-planning/08-commit.md"));
   assert.ok(result.createdFiles.includes(".flowness/workflows/mvp-planning/09-close.md"));
@@ -63,12 +76,14 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.equal(await exists(join(rootDir, ".codex")), false);
 
   const agents = await readFile(join(rootDir, "AGENTS.md"), "utf8");
-  assert.match(agents, /Flowness keeps project guidance intentionally small\./);
-  assert.match(agents, /flowness run "<request>"/);
-  assert.match(agents, /flowness step --issue ISSUE-ID/);
-  assert.match(agents, /flowness evidence:add --issue ISSUE-ID/);
+  assert.match(agents, /Keep this file short and use the generated navigation files for details\./);
+  assert.match(agents, /flowness locate "<task description>"/);
+  assert.match(agents, /flowness review:run/);
+  assert.match(agents, /flowness test --summary/);
+  assert.match(agents, /flowness audit --changed/);
   assert.match(agents, /Treat `\.flowness\/` as the source of truth and `\.agent\/` as legacy only\./);
-  assert.match(agents, /Commit only after Evidence Review and the commit policy check\./);
+  assert.match(agents, /Do not paste long transcripts into logs, findings, or reviews\./);
+  assert.ok(agents.split("\n").length < 45);
 
   const scriptsReadme = await readFile(join(rootDir, ".flowness/scripts/README.md"), "utf8");
   assert.match(scriptsReadme, /npx tsx \.flowness\/scripts\/flowness-runner\.ts/);
@@ -82,21 +97,115 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(projectProfile, /Project: demo-project/);
   assert.match(projectProfile, /Build: `npm run build`/);
 
-  const commands = await readFile(join(rootDir, ".flowness/commands.json"), "utf8");
-  assert.match(commands, /flowness run/);
-  assert.match(commands, /flowness status --issue ISSUE-ID/);
-  assert.match(commands, /flowness evidence:add/);
+  const commandsJson = JSON.parse(await readFile(join(rootDir, ".flowness/commands.json"), "utf8")) as {
+    readonly commands: {
+      readonly run: string;
+      readonly reviewRun: string;
+      readonly status: string;
+      readonly locate: string;
+      readonly testSummary: string;
+      readonly auditChanged: string;
+      readonly evidenceAdd: string;
+      readonly ruleUpdate: string;
+    };
+  };
+  assert.equal(commandsJson.commands.run, "flowness run \"<request>\"");
+  assert.equal(commandsJson.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
+  assert.equal(commandsJson.commands.status, "flowness status --issue ISSUE-ID");
+  assert.equal(commandsJson.commands.locate, "flowness locate \"<task description>\"");
+  assert.equal(commandsJson.commands.testSummary, "flowness test --summary");
+  assert.equal(commandsJson.commands.auditChanged, "flowness audit --changed");
+  assert.equal(commandsJson.commands.evidenceAdd, "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path");
+  assert.equal(commandsJson.commands.ruleUpdate, "flowness rule:update --id RULE-ID --input \"...\"");
 
   const contextIndex = await readFile(join(rootDir, ".flowness/context-index.json"), "utf8");
-  assert.match(contextIndex, /"\.flowness\/project-profile\.md"/);
-  assert.match(contextIndex, /"\.flowness\/commands\.json"/);
-  assert.match(contextIndex, /"\.flowness\/state"/);
+  const parsedContextIndex = JSON.parse(contextIndex) as {
+    readonly projectName: string;
+    readonly areas: readonly { readonly area: string; readonly entryFiles: readonly string[] }[];
+  };
+  assert.equal(parsedContextIndex.projectName, "demo-project");
+  assert.ok(parsedContextIndex.areas.some((area) => area.area === "findings"));
+  assert.ok(parsedContextIndex.areas.some((area) => area.area === "source"));
+  const sourceArea = parsedContextIndex.areas.find((area) => area.area === "source");
+  assert.ok(sourceArea !== undefined);
+  assert.ok(sourceArea.entryFiles.every((file) => file !== "src"));
+  assert.ok(parsedContextIndex.areas.some((area) => area.area === "navigation"));
 
-  const manifest = await readFile(join(rootDir, ".flowness/harness-manifest.json"), "utf8");
-  assert.match(manifest, /"version": "0\.1\.4"/);
-  assert.match(manifest, /"\.flowness\/state"/);
-  assert.match(manifest, /flowness run/);
-  assert.match(manifest, /flowness status --issue ISSUE-ID/);
+  const navigation = await readFile(join(rootDir, ".flowness/navigation.md"), "utf8");
+  assert.match(navigation, /# Navigation/);
+  assert.match(navigation, /Read this file first/);
+  assert.match(navigation, /## File Location/);
+  assert.match(navigation, /flowness locate "<task description>"/);
+  assert.match(navigation, /flowness test --summary/);
+  assert.match(navigation, /flowness audit --changed/);
+  assert.match(navigation, /Active issue: none yet/);
+  assert.doesNotMatch(navigation, /Planning docs:/);
+
+  const activeIssue = await readFile(join(rootDir, ".flowness/state/active-issue.md"), "utf8");
+  assert.match(activeIssue, /# Active Issue/);
+  assert.match(activeIssue, /No active issue exists yet\./);
+  assert.match(activeIssue, /## Where To Start/);
+  assert.match(activeIssue, /flowness locate "<task description>"/);
+  assert.match(activeIssue, /## Rules/);
+  assert.doesNotMatch(activeIssue, /Planning Docs/);
+
+  const prd = await readFile(join(rootDir, "docs/PRD.md"), "utf8");
+  assert.match(prd, /# PRD/);
+  assert.match(prd, /## Product Topic \/ Users \/ Problem/);
+  assert.match(prd, /## Core Features \/ Non-goals/);
+  assert.match(prd, /## Open Questions/);
+  assert.match(prd, /\[\s*Navigation\s*\]\(\.\.\/\.flowness\/navigation\.md\)/);
+
+  const ard = await readFile(join(rootDir, "docs/ARD.md"), "utf8");
+  assert.match(ard, /# ARD/);
+  assert.match(ard, /## Stack/);
+  assert.match(ard, /## Storage \/ Auth \/ Deployment \/ Scale/);
+  assert.match(ard, /## Test Strategy \/ Security/);
+  assert.match(ard, /\[\s*Navigation\s*\]\(\.\.\/\.flowness\/navigation\.md\)/);
+
+  const techReadme = await readFile(join(rootDir, ".flowness/rules/tech/README.md"), "utf8");
+  assert.match(techReadme, /# Tech Rules/);
+  assert.match(techReadme, /java\.md/);
+  assert.match(techReadme, /react\.md/);
+
+  const reactRule = await readFile(join(rootDir, ".flowness/rules/tech/react.md"), "utf8");
+  assert.match(reactRule, /# React/);
+  assert.match(reactRule, /## Common Architecture/);
+  assert.match(reactRule, /## Testing Guidance/);
+  assert.match(reactRule, /## Security Notes/);
+
+  const typeScriptRule = await readFile(join(rootDir, ".flowness/rules/tech/typescript.md"), "utf8");
+  assert.match(typeScriptRule, /# TypeScript/);
+  assert.match(typeScriptRule, /## Anti-Patterns/);
+
+  const manifest = JSON.parse(await readFile(join(rootDir, ".flowness/harness-manifest.json"), "utf8")) as {
+    readonly version: string;
+    readonly contextFiles: {
+      readonly findings: string;
+      readonly activeIssue: string;
+      readonly navigation: string;
+      readonly prd: string;
+    };
+    readonly commands: {
+      readonly reviewRun: string;
+      readonly run: string;
+      readonly status: string;
+      readonly locate: string;
+      readonly testSummary: string;
+      readonly auditChanged: string;
+    };
+  };
+  assert.equal(manifest.version, "0.1.5");
+  assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
+  assert.equal(manifest.contextFiles.activeIssue, ".flowness/state/active-issue.md");
+  assert.equal(manifest.contextFiles.navigation, ".flowness/navigation.md");
+  assert.equal(manifest.contextFiles.prd, "docs/PRD.md");
+  assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
+  assert.equal(manifest.commands.run, "flowness run \"<request>\"");
+  assert.equal(manifest.commands.status, "flowness status --issue ISSUE-ID");
+  assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");
+  assert.equal(manifest.commands.testSummary, "flowness test --summary");
+  assert.equal(manifest.commands.auditChanged, "flowness audit --changed");
 
   const featureReadme = await readFile(join(rootDir, ".flowness/workflows/feature-development/README.md"), "utf8");
   assert.match(featureReadme, /Feature Development/);
@@ -109,14 +218,24 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(featureCommitStep, /Next:/);
   assert.match(featureCommitStep, /## Gate Behavior/);
   assert.match(featureCommitStep, /## Required Command \/ Runner Usage/);
+  assert.match(featureCommitStep, /## Required Input Files/);
+  assert.match(featureCommitStep, /## Required Output Files/);
+  assert.match(featureCommitStep, /## Relevant Rules/);
+  assert.match(featureCommitStep, /git\.md/);
   assert.match(featureCommitStep, /commit-policy\.md/);
-  assert.match(featureCommitStep, /Inspect git status, git log, and diff stat before choosing the commit message\./);
-  assert.match(featureCommitStep, /Report the commit hash, the message, and the changed files after the commit succeeds\./);
+  assert.match(featureCommitStep, /Inspect the active issue, workflow state, Evidence Review report, git status, and diff summary before choosing the commit message\./);
+  assert.match(featureCommitStep, /Report the repo root, commit hash, commit message, and changed files after the commit succeeds\./);
+
+  const gitRules = await readFile(join(rootDir, ".flowness/rules/git.md"), "utf8");
+  assert.match(gitRules, /Git repo detection: Resolve the repository from the changed files/);
+  assert.match(gitRules, /Commit message style: conventional/);
+  assert.match(gitRules, /Worktrees: allow/);
+  assert.match(gitRules, /Never commit suffix: \.log/);
 
   const commitPolicy = await readFile(join(rootDir, ".flowness/rules/commit-policy.md"), "utf8");
-  assert.match(commitPolicy, /git status --short --untracked-files=all/);
-  assert.match(commitPolicy, /git log --oneline --graph --decorate -n 5/);
-  assert.match(commitPolicy, /git diff --stat --cached/);
+  assert.match(commitPolicy, /git add \. forbidden: yes/);
+  assert.match(commitPolicy, /git commit -a forbidden: yes/);
+  assert.match(commitPolicy, /Do not commit before required checks pass\./);
 
   const featureWorkflowFiles = (await readdir(join(rootDir, ".flowness/workflows/feature-development"))).sort();
   assert.deepEqual(featureWorkflowFiles, [
@@ -130,6 +249,26 @@ test("initializeProject creates the Flowness project skeleton", async () => {
     "08-close.md",
     "README.md",
   ]);
+
+  const reviewWorkflowReadme = await readFile(join(rootDir, ".flowness/workflows/code-review/README.md"), "utf8");
+  assert.match(reviewWorkflowReadme, /Review a change set/);
+  assert.match(reviewWorkflowReadme, /diff-focused review work/);
+  assert.match(reviewWorkflowReadme, /multi-perspective findings/);
+
+  const reviewScopeStep = await readFile(join(rootDir, ".flowness/workflows/code-review/03-scope-definition.md"), "utf8");
+  assert.match(reviewScopeStep, /flowness locate/);
+  assert.match(reviewScopeStep, /context-index\.json/);
+
+  const reviewTemplate = await readFile(join(rootDir, ".flowness/templates/review-template.md"), "utf8");
+  assert.match(reviewTemplate, /## Target/);
+  assert.match(reviewTemplate, /## Perspective Results/);
+  assert.match(reviewTemplate, /## Follow-up/);
+
+  const findingTemplate = await readFile(join(rootDir, ".flowness/templates/finding-template.md"), "utf8");
+  assert.match(findingTemplate, /## Perspective/);
+  assert.match(findingTemplate, /## Severity/);
+  assert.match(findingTemplate, /## File\/path/);
+  assert.match(findingTemplate, /Requires follow-up issue/);
 
   for (const workflowId of [
     "feature-development",
@@ -157,6 +296,9 @@ test("initializeProject creates the Flowness project skeleton", async () => {
       assert.match(content, /## Human Gate/);
       assert.match(content, /## Gate Behavior/);
       assert.match(content, /## Required Command \/ Runner Usage/);
+      assert.match(content, /## Required Input Files/);
+      assert.match(content, /## Required Output Files/);
+      assert.match(content, /## Relevant Rules/);
       assert.match(content, /## Required Inputs/);
       assert.match(content, /## Actions/);
       assert.match(content, /## Evidence Required/);
@@ -189,6 +331,14 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(config, /feature: feature-development/);
   assert.match(config, /bugfix: bug-fix/);
   assert.match(config, /refactor: refactoring/);
+
+  const projectOverrides = await readFile(join(rootDir, ".flowness/rules/project-overrides.md"), "utf8");
+  assert.match(projectOverrides, /# Project Overrides/);
+  assert.match(projectOverrides, /Record the first override below this line\./);
+
+  const changeLog = await readFile(join(rootDir, ".flowness/rules/change-log.md"), "utf8");
+  assert.match(changeLog, /# Rule Change Log/);
+  assert.match(changeLog, /Add the first rule update entry below this line\./);
 });
 
 test("initializeProject does not overwrite existing files without force", async () => {

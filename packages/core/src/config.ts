@@ -17,16 +17,18 @@ export const defaultHumanGate: HumanGateConfig = {
 
 export const defaultReviewAgents: readonly ReviewRole[] = [
   "Architecture Reviewer",
+  "Correctness Reviewer",
   "Security Reviewer",
-  "Testing Reviewer",
-  "Documentation Reviewer",
+  "Test Coverage Reviewer",
   "Maintainability Reviewer",
   "Performance Reviewer",
+  "Documentation Reviewer",
 ];
 
 export const defaultWorkflowMapping: Record<IssueType, string> = {
   feature: "feature-development",
   bugfix: "bug-fix",
+  review: "code-review",
   refactor: "refactoring",
   research: "feature-development",
   investigation: "feature-development",
@@ -45,6 +47,18 @@ const humanGateFieldMatchers: readonly [HumanGateField, RegExp][] = [
   ["review", /(review|검토|리뷰|검증)/i],
   ["implementation", /(implementation|implement|구현|실행)/i],
 ];
+
+function normalizeReviewAgentName(agent: string): ReviewRole | null {
+  if (reviewRoleValues.includes(agent as ReviewRole)) {
+    return agent as ReviewRole;
+  }
+
+  if (agent === "Testing Reviewer") {
+    return "Test Coverage Reviewer";
+  }
+
+  return null;
+}
 
 const humanGateModeMatchers: readonly [HumanGateConfig[HumanGateField], RegExp][] = [
   ["always", /(always|항상|매번|무조건|반드시)/i],
@@ -271,10 +285,11 @@ export function parseProjectConfigYaml(
       }
 
       const agent = unquoteYamlValue(entry.slice(2));
-      if (!reviewRoleValues.includes(agent as ReviewRole)) {
+      const normalizedAgent = normalizeReviewAgentName(agent);
+      if (normalizedAgent === null) {
         throw new Error(`Unknown review agent in config: ${agent}`);
       }
-      reviewAgents.push(agent as ReviewRole);
+      reviewAgents.push(normalizedAgent);
       continue;
     }
 

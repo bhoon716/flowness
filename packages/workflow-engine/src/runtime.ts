@@ -9,7 +9,11 @@ import type {
 } from "@flowness-labs/core";
 import { mergeEvidence, getNextWorkflowStep, defineWorkflow } from "./index.js";
 import { pathExists } from "@flowness-labs/core";
-import { runCommitWorkflowStep } from "./commit.js";
+import {
+  CommitApprovalRequiredError,
+  prepareCommitWorkflowStep,
+  runCommitWorkflowStep,
+} from "./commit.js";
 
 export interface WorkflowStepRunInput {
   readonly workflow: WorkflowDefinition;
@@ -171,7 +175,7 @@ export async function runWorkflowStep(
       state: {
         ...input.state,
         currentStep: step.name,
-        blocked: false,
+        blocked: true,
         updatedAt: input.timestamp,
       },
       logEntry,
@@ -181,9 +185,73 @@ export async function runWorkflowStep(
   }
 
   try {
-    const result = step.name === "Commit"
-      ? await runCommitWorkflowStep(input.context, workflow.name)
-      : await step.execute(input.context);
+    if (step.name === "Commit") {
+      const assessment = await prepareCommitWorkflowStep(input.context, workflow.name);
+      if (assessment.blockingReason !== null) {
+        const blockedLogEntry = createStepLogEntry({
+          timestamp: input.timestamp,
+          stepName: step.name,
+          actions: [
+            "Commit step is blocked before staging.",
+            ...assessment.actions,
+          ],
+          evidence: [...assessment.evidence],
+          summary: `Commit blocked: ${assessment.blockingReason}`,
+          nextStep: step.name,
+        });
+
+        return {
+          state: {
+            ...input.state,
+            currentStep: step.name,
+            blocked: true,
+            updatedAt: input.timestamp,
+          },
+          logEntry: blockedLogEntry,
+          status: "blocked",
+          nextStep: step.name,
+          rootCause: assessment.blockingReason,
+        };
+      }
+
+      if (assessment.approvalRequired && input.approved !== true) {
+        const approvalLogEntry = createStepLogEntry({
+          timestamp: input.timestamp,
+          stepName: step.name,
+          actions: [
+            "Commit step is waiting for human approval.",
+            ...assessment.actions,
+          ],
+          evidence: [...assessment.evidence],
+          summary: `Awaiting human approval for "${step.name}".`,
+          nextStep: step.name,
+        });
+
+        return {
+          state: {
+            ...input.state,
+            currentStep: step.name,
+            blocked: true,
+            updatedAt: input.timestamp,
+          },
+          logEntry: approvalLogEntry,
+          status: "waiting_approval",
+          nextStep: step.name,
+        };
+      }
+
+      const result = await runCommitWorkflowStep(input.context, workflow.name, true, assessment);
+      return await finalizeWorkflowStepRun({
+        workflow,
+        state: input.state,
+        step,
+        result,
+        timestamp: input.timestamp,
+        approved: input.approved === true,
+      });
+    }
+
+    const result = await step.execute(input.context);
 
     return await finalizeWorkflowStepRun({
       workflow,
@@ -194,6 +262,32 @@ export async function runWorkflowStep(
       approved: input.approved === true,
     });
   } catch (error) {
+    if (error instanceof CommitApprovalRequiredError) {
+      const approvalLogEntry = createStepLogEntry({
+        timestamp: input.timestamp,
+        stepName: step.name,
+        actions: [
+          "Commit step is waiting for human approval.",
+          ...error.assessment.actions,
+        ],
+        evidence: [...error.assessment.evidence],
+        summary: `Awaiting human approval for "${step.name}".`,
+        nextStep: step.name,
+      });
+
+      return {
+        state: {
+          ...input.state,
+          currentStep: step.name,
+          blocked: true,
+          updatedAt: input.timestamp,
+        },
+        logEntry: approvalLogEntry,
+        status: "waiting_approval",
+        nextStep: step.name,
+      };
+    }
+
     const rootCause = normalizeRootCause(error);
     const failureResult = step.onFail === undefined
       ? {

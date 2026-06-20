@@ -4,11 +4,19 @@ import { join } from "node:path";
 import {
   pathExists,
   readJsonFile,
+  sha256Hex,
 } from "./filesystem.js";
+import {
+  buildContextIndex,
+} from "./context-index.js";
 
 export interface ScaffoldArtifact {
   readonly path: string;
   readonly content: string;
+}
+
+export interface GeneratedFileHashes {
+  readonly [path: string]: string;
 }
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun" | "unknown";
@@ -73,15 +81,15 @@ const workflowSpecs: readonly WorkflowSpec[] = [
   {
     id: "code-review",
     title: "Code Review",
-    summary: "Review changes, clarify scope, record findings, and route follow-up work back through Flowness.",
-    focus: "review work",
+    summary: "Review a change set, confirm the target, inspect the diff, gather multi-perspective findings, and close with a recommendation.",
+    focus: "diff-focused review work",
     steps: [
       { fileName: "01-intake.md", title: "Intake", purpose: "Capture the review request and the change set under review.", humanGate: "always", next: "Clarifying Questions" },
-      { fileName: "02-clarifying-questions.md", title: "Clarifying Questions", purpose: "Ask for the review bar, expected scope, and any missing context before reviewing.", humanGate: "always", next: "Scope Definition" },
+      { fileName: "02-clarifying-questions.md", title: "Clarifying Questions", purpose: "Ask for the review target, review bar, and any missing context before reviewing.", humanGate: "always", next: "Scope Definition" },
       { fileName: "03-scope-definition.md", title: "Scope Definition", purpose: "Define what is in scope, what is out of scope, and what evidence matters.", humanGate: "always", next: "Diff Review" },
-      { fileName: "04-diff-review.md", title: "Diff Review", purpose: "Inspect the diff against the request and look for regressions or missing tests.", humanGate: "always", next: "Findings Synthesis" },
-      { fileName: "05-findings-synthesis.md", title: "Findings Synthesis", purpose: "Turn raw observations into blocking and non-blocking findings.", humanGate: "never", next: "Evidence Review" },
-      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Check that every finding points to concrete evidence.", humanGate: "optional", next: "Commit" },
+      { fileName: "04-diff-review.md", title: "Diff Review", purpose: "Summarize the target diff and affected files before deeper review.", humanGate: "always", next: "Findings Synthesis" },
+      { fileName: "05-findings-synthesis.md", title: "Findings Synthesis", purpose: "Turn architecture, correctness, security, test coverage, and maintainability observations into compact findings.", humanGate: "never", next: "Evidence Review" },
+      { fileName: "06-evidence-review.md", title: "Evidence Review", purpose: "Check that every finding points to concrete evidence and note whether a follow-up issue is needed.", humanGate: "optional", next: "Commit" },
       { fileName: "07-commit.md", title: "Commit", purpose: "Inspect git state, stage the intended files, and create the final commit.", humanGate: "never", next: "Close" },
       { fileName: "08-close.md", title: "Close", purpose: "Close the review with a clear recommendation or follow-up issue list.", humanGate: "never", next: null },
     ],
@@ -133,6 +141,496 @@ const workflowSpecs: readonly WorkflowSpec[] = [
       { fileName: "07-issue-breakdown.md", title: "Issue Breakdown", purpose: "Split the reviewed plan into child issues with clear goals and evidence requirements.", humanGate: "always", next: "Commit" },
       { fileName: "08-commit.md", title: "Commit", purpose: "Inspect git state, stage the intended files, and create the final commit.", humanGate: "never", next: "Close" },
       { fileName: "09-close.md", title: "Close", purpose: "Record the final plan state, risks, and the next delivery step.", humanGate: "never", next: null },
+    ],
+  },
+];
+
+export interface ActiveIssueNavigationContext {
+  readonly issueId: string;
+  readonly issueTitle: string;
+  readonly issueState: string;
+  readonly workflowId: string;
+  readonly currentStep: string;
+  readonly nextStep: string | null;
+  readonly blocked: boolean;
+  readonly blockReason: string | null;
+  readonly pendingStep: string | null;
+  readonly requiredAction: string | null;
+  readonly issueFile: string;
+  readonly workflowStateFile: string;
+  readonly issueLogFile: string;
+  readonly currentStepFile: string;
+  readonly nextStepFile: string | null;
+  readonly evidenceFiles: readonly string[];
+  readonly relevantRules: readonly string[];
+}
+
+interface TechRuleSpec {
+  readonly fileName: string;
+  readonly title: string;
+  readonly intro: string;
+  readonly architecture: readonly string[];
+  readonly conventions: readonly string[];
+  readonly bestPractices: readonly string[];
+  readonly antiPatterns: readonly string[];
+  readonly cleanCode: readonly string[];
+  readonly solid: readonly string[];
+  readonly testing: readonly string[];
+  readonly security: readonly string[];
+}
+
+const genericArchitectureBullets = [
+  "Keep boundaries explicit and make the main dependency direction obvious.",
+  "Favor feature or domain slices over large technical dumping grounds.",
+  "Push framework and I/O concerns to the edges behind narrow adapters.",
+] as const;
+
+const genericCodingConventionBullets = [
+  "Use the project's formatter and linter as the final source of style truth.",
+  "Prefer descriptive names and small files over broad, catch-all modules.",
+  "Keep public APIs narrow and keep helper code close to the code that uses it.",
+] as const;
+
+const genericBestPracticeBullets = [
+  "Validate input at the boundary and convert it into typed domain data early.",
+  "Prefer dependency injection or explicit composition over hidden globals.",
+  "Keep side effects easy to spot and isolate them from pure logic.",
+] as const;
+
+const genericAntiPatternBullets = [
+  "Avoid God objects, shared mutable state, and utility buckets that hold everything.",
+  "Avoid mixing transport, orchestration, and persistence concerns in the same class or file.",
+  "Avoid abstractions that add indirection without removing duplication or coupling.",
+] as const;
+
+const genericCleanCodeBullets = [
+  "Keep functions short and single-purpose.",
+  "Name things for business intent rather than implementation detail.",
+  "Prefer small refactors that make the change easier to test and review.",
+] as const;
+
+const genericSolidBullets = [
+  "Keep responsibilities separated so one change does not ripple through unrelated code.",
+  "Depend on abstractions at the edges, but do not invent interfaces for trivial internals.",
+  "Prefer composition and small collaborators over inheritance-heavy designs.",
+] as const;
+
+const genericTestingBullets = [
+  "Cover the happy path and the boundary failures closest to the user-facing surface.",
+  "Prefer tests that exercise public behavior over tests that mirror implementation details.",
+  "Use integration coverage where cross-layer behavior or regressions matter most.",
+] as const;
+
+const genericSecurityBullets = [
+  "Treat external input as untrusted and validate it before it reaches business logic.",
+  "Keep secrets out of source control and load them from environment or secret storage.",
+  "Review auth, authorization, and data exposure whenever a new boundary is added.",
+] as const;
+
+const techRuleSpecs: readonly TechRuleSpec[] = [
+  {
+    fileName: "java.md",
+    title: "Java",
+    intro: "Java projects should lean on package structure, strong encapsulation, and explicit dependency boundaries.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Use packages to express domain boundaries and keep classes cohesive.",
+      "Use records or small immutable types for simple data transfer objects.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Prefer constructor-based initialization and keep field visibility tight.",
+      "Use final where it meaningfully prevents accidental mutation.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Prefer interfaces at real seams and keep implementations behind those seams.",
+      "Use Optional for absent values at boundaries, not as a field type everywhere.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid field injection, static mutable state, and giant service classes.",
+      "Avoid catch-and-ignore error handling that hides the real failure mode.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep methods small enough that intent is visible without scrolling.",
+      "Let packages and class names communicate the main responsibility.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Keep services focused on one reason to change and split responsibilities when they drift.",
+      "Prefer dependency inversion at integration boundaries rather than across every internal helper.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use JUnit for unit tests and add integration tests for IO, persistence, and wiring.",
+      "Use focused tests around constructors, validation, and error paths.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Avoid unsafe deserialization and reflectively loading untrusted classes or names.",
+      "Validate request data before it reaches persistence or remote calls.",
+    ],
+  },
+  {
+    fileName: "javascript.md",
+    title: "JavaScript",
+    intro: "JavaScript code should be explicit about modules, async boundaries, and side effects.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Prefer ESM modules and keep the module graph easy to follow.",
+      "Separate pure logic from DOM, network, and filesystem access.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Prefer const by default and use let only when mutation is required.",
+      "Keep async functions explicit and avoid callback nesting when a promise is enough.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Handle promise rejection and thrown errors at the boundary that can actually recover.",
+      "Keep state local unless there is a clear shared ownership model.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid eval, dynamic code loading from untrusted input, and prototype mutation.",
+      "Avoid callback pyramids, hidden globals, and modules that do too many jobs.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep data transforms obvious and return plain values when possible.",
+      "Use small helpers instead of one giant utility file.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Apply single responsibility at the module level and keep class hierarchies shallow.",
+      "Prefer composition and dependency injection for behavior that changes by environment.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use unit and integration tests that exercise public functions and user-visible behavior.",
+      "Stub external systems at the edge and keep test fixtures small.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Sanitize user-controlled HTML and avoid injecting untrusted strings into the DOM.",
+      "Validate JSON and request payloads before they reach business logic or persistence.",
+    ],
+  },
+  {
+    fileName: "typescript.md",
+    title: "TypeScript",
+    intro: "TypeScript code should use types to clarify boundaries, not to obscure implementation.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Keep strongly typed boundaries around API input, output, and persistence records.",
+      "Prefer domain-specific types and feature slices over giant shared type bags.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Use strict compiler settings and treat type errors as design feedback.",
+      "Use interfaces and type aliases intentionally instead of by habit.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Use discriminated unions for state machines and request/result shapes.",
+      "Use `satisfies` and precise return types to keep widening under control.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid `any`, `as unknown as`, and other escape hatches unless you can justify them.",
+      "Avoid types so abstract that they no longer protect the code at runtime boundaries.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep type names aligned with the domain concept they represent.",
+      "Prefer a small number of expressive types over a large hierarchy of near-duplicates.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Use abstraction when it lowers coupling at an external boundary, not everywhere internally.",
+      "Prefer composable services and small interfaces that describe one capability.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Combine type-checking with runtime tests so both compile-time and behavior regressions are caught.",
+      "Test the public API and the conversion points where raw data becomes typed data.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Remember that static types do not validate untrusted input at runtime.",
+      "Validate request payloads and file contents before turning them into typed domain objects.",
+    ],
+  },
+  {
+    fileName: "python.md",
+    title: "Python",
+    intro: "Python code should stay readable, explicit, and close to the project conventions around imports, modules, and exceptions.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Use modules and packages to express domain boundaries and keep import graphs simple.",
+      "Prefer small collaborating functions and dataclasses over excessive inheritance.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Follow PEP 8 and keep imports, naming, and line length consistent with project policy.",
+      "Prefer pathlib, context managers, and explicit exception handling.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Add type hints where they clarify a public boundary or a tricky data shape.",
+      "Make side effects explicit and keep module import time cheap.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid broad except blocks, module-level mutable state, and import-time work.",
+      "Avoid turning utility modules into a dumping ground for unrelated helpers.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep functions small and let the code read top-to-bottom like a narrative.",
+      "Use docstrings where they clarify the contract, not every obvious implementation detail.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Keep class responsibilities narrow and favor composition over deep inheritance trees.",
+      "Use dependency injection or explicit parameters when a behavior might vary.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use pytest or unittest to cover the boundary behavior and the key error paths.",
+      "Prefer fixtures that are small and explicit rather than magical shared state.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Do not trust file contents, subprocess inputs, or environment values without validation.",
+      "Keep secrets in environment variables or secret stores and avoid committing them.",
+    ],
+  },
+  {
+    fileName: "spring.md",
+    title: "Spring",
+    intro: "Spring applications should keep controllers thin, services focused, and cross-cutting concerns explicit.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Organize code by domain or bounded context, not only by technical layer.",
+      "Keep controllers, services, repositories, and configuration classes clearly separated.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Prefer constructor injection and explicit configuration over field injection.",
+      "Keep transaction boundaries and validation annotations visible in the class that owns them.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Keep controllers thin and move orchestration into services.",
+      "Use DTOs at the edge and keep persistence entities separate from API shape where it helps clarity.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid field injection, controller business logic, and sprawling transaction scopes.",
+      "Avoid treating repositories like services or services like controllers.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep class names and package names aligned with the domain they own.",
+      "Make service methods tell the story of the use case rather than the framework callback.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Use interfaces where they describe a real external seam or variation point.",
+      "Keep each bean responsible for one change reason and one clear collaboration.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use unit tests for services and slice or integration tests for wiring, validation, and persistence.",
+      "Use MockMvc, WebTestClient, or Testcontainers when those boundaries matter.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Use Spring Security for authentication and authorization instead of ad hoc checks.",
+      "Validate inputs, keep secrets out of code, and review serialization and deserialization paths carefully.",
+    ],
+  },
+  {
+    fileName: "react.md",
+    title: "React",
+    intro: "React code should favor feature-based organization, small pure components, and predictable data flow.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Group components, hooks, tests, and styles by feature slice when that improves locality.",
+      "Keep shared primitives small and reserve global state for genuinely shared concerns.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Keep components pure and put side effects into the smallest possible effect boundary.",
+      "Use hooks at the top level and keep render logic readable without premature memoization.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Co-locate state with the smallest component that owns it.",
+      "Prefer composition over inheritance and prefer props over unnecessary context.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid large shared components that absorb unrelated feature behavior.",
+      "Avoid overusing context, effects, or memoization to solve problems that simpler state would solve.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep component props small and descriptive.",
+      "Make custom hooks do one thing and name them after the behavior they encapsulate.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Separate UI rendering from business logic so components stay easy to test.",
+      "Favor composition and small feature slices over inheritance or deeply nested prop plumbing.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use React Testing Library to verify behavior through the user-facing surface.",
+      "Test the critical interactions and the rendering branches that matter to users.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Avoid unsafe HTML injection and sanitize any rich text or user-generated content before rendering it.",
+      "Keep secrets and sensitive logic off the client when the server can own them.",
+    ],
+  },
+  {
+    fileName: "nextjs.md",
+    title: "Next.js",
+    intro: "Next.js code should lean on the App Router, server components, and explicit client boundaries.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Prefer server components by default and opt into client components only when interactivity requires them.",
+      "Keep route segments, data fetching, and mutations close to the feature or route that uses them.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Keep routing files small and let the route structure reflect the product structure.",
+      "Make caching, loading, and error boundaries explicit in route code.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Fetch data on the server when that reduces client complexity or protects secrets.",
+      "Keep form submission, auth, and mutation logic on the server side when practical.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid turning the whole app into client components just to simplify one interaction.",
+      "Avoid mixing server-only code, client-only code, and UI concerns in the same module when a boundary is clearer.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep route components small and compose them from feature-level helpers.",
+      "Name route files and co-located helpers after the user-facing feature they serve.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Treat route handlers and server helpers as small boundaries with one responsibility.",
+      "Prefer small composable data access helpers over broad shared abstractions.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use integration tests and e2e tests for routing, auth, and server/client boundaries that can regress easily.",
+      "Use component tests for isolated UI behavior and route segment boundaries.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Keep secrets and privileged logic on the server and never bundle them into client components.",
+      "Validate request data and auth decisions at the route or server-action boundary.",
+    ],
+  },
+  {
+    fileName: "nestjs.md",
+    title: "NestJS",
+    intro: "NestJS code should follow module boundaries, dependency injection, and explicit validation.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Organize code around modules, controllers, providers, and feature boundaries.",
+      "Keep transport concerns in controllers and business rules in providers or services.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Prefer constructor injection and typed DTOs over manual request parsing.",
+      "Keep guards, pipes, and interceptors explicit where cross-cutting concerns belong.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Use validation pipes and DTOs to normalize input at the edge.",
+      "Keep controllers thin and let services orchestrate collaborators.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid fat controllers, hidden globals, and ad hoc request parsing.",
+      "Avoid mixing validation, orchestration, and persistence inside one method.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep providers small and name them after one domain responsibility.",
+      "Export only what downstream modules truly need.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Use module exports and interfaces to keep dependency direction clear.",
+      "Split providers when a class starts serving more than one reason to change.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use unit tests for providers and integration or e2e tests for module boundaries and transport behavior.",
+      "Test validation, guards, and serialization paths that often fail silently.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Use guards and validation pipes for auth and input safety instead of hand-rolled checks everywhere.",
+      "Treat DTOs and serialization boundaries as security-sensitive surfaces.",
+    ],
+  },
+  {
+    fileName: "django.md",
+    title: "Django",
+    intro: "Django code should keep apps cohesive, views thin, and validation close to the model or form boundary.",
+    architecture: [
+      ...genericArchitectureBullets,
+      "Organize the project by Django app or domain area instead of only by technical type.",
+      "Keep models, forms, views, and templates separated so each layer stays easy to reason about.",
+    ],
+    conventions: [
+      ...genericCodingConventionBullets,
+      "Keep views small and let forms or serializers own input validation where it fits the workflow.",
+      "Use settings modules and environment-specific configuration intentionally.",
+    ],
+    bestPractices: [
+      ...genericBestPracticeBullets,
+      "Prefer ORM queries and migrations over raw SQL unless there is a good reason not to.",
+      "Keep reusable domain logic out of templates and lean on services or model methods where helpful.",
+    ],
+    antiPatterns: [
+      ...genericAntiPatternBullets,
+      "Avoid fat views, template logic sprawl, and direct database access everywhere.",
+      "Avoid treating Django apps as catch-all folders that own unrelated features.",
+    ],
+    cleanCode: [
+      ...genericCleanCodeBullets,
+      "Keep app names and model names aligned with the business domain.",
+      "Use clear view names and keep template logic readable to non-framework specialists.",
+    ],
+    solid: [
+      ...genericSolidBullets,
+      "Keep each Django app focused on one domain concept or bounded capability.",
+      "Split heavy workflows into services, forms, or model methods so responsibilities stay narrow.",
+    ],
+    testing: [
+      ...genericTestingBullets,
+      "Use Django's test tools or pytest to cover request/response behavior and ORM interactions.",
+      "Prefer integration coverage for forms, views, and security-sensitive paths.",
+    ],
+    security: [
+      ...genericSecurityBullets,
+      "Keep CSRF, auth, permissions, and template escaping in mind whenever you touch a request path.",
+      "Use the ORM and built-in security features instead of rolling custom parsing or auth logic.",
     ],
   },
 ];
@@ -300,6 +798,330 @@ function renderProjectNotes(notes: readonly string[]): string {
   return notes.map((note) => `- ${note}`).join("\n");
 }
 
+function renderBulletedSection(title: string, bullets: readonly string[]): string[] {
+  return [
+    title,
+    ...bullets.map((bullet) => `- ${bullet}`),
+    "",
+  ];
+}
+
+function renderMarkdownLink(label: string, target: string): string {
+  return `[${label}](${target})`;
+}
+
+function stripFlownessPrefix(path: string): string {
+  return path.startsWith(".flowness/")
+    ? path.slice(".flowness/".length)
+    : path;
+}
+
+function deriveRelevantTechRuleFiles(analysis: ProjectAnalysis): readonly string[] {
+  const files = new Set<string>();
+
+  switch (analysis.language) {
+    case "Java":
+      files.add("tech/java.md");
+      break;
+    case "Python":
+      files.add("tech/python.md");
+      break;
+    case "JavaScript":
+      files.add("tech/javascript.md");
+      break;
+    case "TypeScript":
+      files.add("tech/typescript.md");
+      files.add("tech/javascript.md");
+      break;
+  }
+
+  switch (analysis.framework) {
+    case "React":
+      files.add("tech/react.md");
+      break;
+    case "Next.js":
+      files.add("tech/nextjs.md");
+      files.add("tech/react.md");
+      break;
+    case "NestJS":
+      files.add("tech/nestjs.md");
+      break;
+    case "Spring":
+      files.add("tech/spring.md");
+      break;
+    case "Django":
+      files.add("tech/django.md");
+      break;
+  }
+
+  return [...files].sort();
+}
+
+function deriveRelevantRuleFiles(analysis: ProjectAnalysis): readonly string[] {
+  const generalRules = [
+    "request-analysis.md",
+    "clarification-policy.md",
+    "issue-decomposition.md",
+    "fail-closed-workflow.md",
+    "flowness-activation.md",
+    "workflow-routing.md",
+    "definition-of-done.md",
+    "evidence-policy.md",
+    "git.md",
+    "commit-policy.md",
+    "workflow-step-contract.md",
+    "project-overrides.md",
+    "change-log.md",
+  ];
+
+  return [
+    ...generalRules.map((file) => `.flowness/rules/${file}`),
+    ...deriveRelevantTechRuleFiles(analysis).map((file) => `.flowness/rules/${file}`),
+  ];
+}
+
+function renderTechRuleMarkdown(spec: TechRuleSpec, analysis: ProjectAnalysis): string {
+  const stackLabel = analysis.framework === "Unknown"
+    ? analysis.language
+    : `${analysis.language} / ${analysis.framework}`;
+
+  return [
+    `# ${spec.title}`,
+    "",
+    `- Project: ${analysis.projectName}`,
+    `- Stack: ${stackLabel}`,
+    `- Package manager: ${analysis.packageManager}`,
+    analysis.buildCommand === null ? "- Build: TODO: detect build command." : `- Build: \`${analysis.buildCommand}\``,
+    analysis.testCommand === null ? "- Test: TODO: detect test command." : `- Test: \`${analysis.testCommand}\``,
+    analysis.lintCommand === null ? "- Lint: TODO: detect lint command." : `- Lint: \`${analysis.lintCommand}\``,
+    "",
+    "## Common Architecture",
+    ...spec.architecture.map((item) => `- ${item}`),
+    "",
+    "## Coding Conventions",
+    ...spec.conventions.map((item) => `- ${item}`),
+    "",
+    "## Best Practices",
+    ...spec.bestPractices.map((item) => `- ${item}`),
+    "",
+    "## Anti-Patterns",
+    ...spec.antiPatterns.map((item) => `- ${item}`),
+    "",
+    "## Clean Code Rules",
+    ...spec.cleanCode.map((item) => `- ${item}`),
+    "",
+    "## SOLID Guidance",
+    ...spec.solid.map((item) => `- ${item}`),
+    "",
+    "## Testing Guidance",
+    ...spec.testing.map((item) => `- ${item}`),
+    "",
+    "## Security Notes",
+    ...spec.security.map((item) => `- ${item}`),
+    "",
+    "## Project-Specific Overrides",
+    `- [Project overrides](../project-overrides.md)`,
+    `- [Rule change log](../change-log.md)`,
+    "",
+    "## Notes",
+    spec.intro,
+    "",
+  ].join("\n");
+}
+
+function renderGitRuleMarkdown(analysis: ProjectAnalysis, title: string): string {
+  return [
+    `# ${title}`,
+    "",
+    `- Project: ${analysis.projectName}`,
+    "- Git repo detection: Resolve the repository from the changed files, not from the process cwd.",
+    "- Git repo detection: Probe each changed file path with `git -C <path> rev-parse --is-inside-work-tree`, `--show-toplevel`, and `--git-dir`.",
+    "- Auto-commit allowed: no",
+    "- Human approval required: yes",
+    "- Commit message style: conventional",
+    "- Conventional commits required: yes",
+    "- git add . forbidden: yes",
+    "- git commit -a forbidden: yes",
+    "- force push forbidden: yes",
+    "- rebase forbidden: yes",
+    "- reset --hard forbidden: yes",
+    "- merge forbidden: yes",
+    "- Nested repositories: disallow",
+    "- Submodules: disallow",
+    "- Worktrees: allow",
+    "- Do not commit automatically before workflow commit step.",
+    "- Do not commit before Evidence Review passes.",
+    "- Do not commit before required checks pass.",
+    "- Stage only the files that belong to the issue or workflow step.",
+    "- Never commit local-only files, raw logs, temporary outputs, or unrelated `.flowness/` artifacts by default.",
+    "- Never commit path: .flowness/issues/",
+    "- Never commit path: .flowness/logs/",
+    "- Never commit path: .flowness/state/",
+    "- Never commit path: .flowness/backups/",
+    "- Never commit path: .flowness/.flowness-cache/",
+    "- Never commit path: .flowness/findings/",
+    "- Never commit path: node_modules/",
+    "- Never commit path: .git/",
+    "- Never commit suffix: .log",
+    "- Never commit suffix: .out",
+    "- Never commit suffix: .err",
+    "- Never commit suffix: .tmp",
+    "- Never commit suffix: .temp",
+    "- Never commit suffix: .swp",
+    "- Never commit suffix: .bak",
+    "",
+    "## Notes",
+    "- Use `git add -- <files>` with an explicit file list only.",
+    "- Ask for human approval before the commit unless the project rule explicitly allows auto-commit.",
+    "- Keep commit messages concise and aligned with the issue title or goal.",
+    "",
+  ].join("\n");
+}
+
+function renderPlanningDocMarkdown(input: {
+  readonly title: string;
+  readonly intro: string;
+  readonly summary: string;
+  readonly sections: readonly { readonly title: string; readonly bullets: readonly string[] }[];
+  readonly links: readonly string[];
+}): string {
+  return [
+    `# ${input.title}`,
+    "",
+    input.intro,
+    "",
+    "## Summary",
+    input.summary,
+    "",
+    ...input.sections.flatMap((section) => renderBulletedSection(section.title, section.bullets)),
+    "## Related Files",
+    ...input.links.map((link) => `- ${link}`),
+    "",
+  ].join("\n");
+}
+
+function renderNavigationMarkdown(
+  analysis: ProjectAnalysis,
+  activeIssue: ActiveIssueNavigationContext | null,
+): string {
+  const relevantRules = deriveRelevantRuleFiles(analysis);
+  const readFirstLinks = activeIssue === null
+    ? [
+        renderMarkdownLink("project-profile.md", "project-profile.md"),
+        renderMarkdownLink("context-index.json", "context-index.json"),
+        renderMarkdownLink("commands.json", "commands.json"),
+        renderMarkdownLink("harness-manifest.json", "harness-manifest.json"),
+        renderMarkdownLink("state/active-issue.md", "state/active-issue.md"),
+      ]
+    : [
+        renderMarkdownLink("issue.md", `issues/${activeIssue.issueId}/issue.md`),
+        renderMarkdownLink("workflow-state.json", `issues/${activeIssue.issueId}/workflow-state.json`),
+        renderMarkdownLink("issue log", `logs/${activeIssue.issueId}.md`),
+        renderMarkdownLink(activeIssue.currentStepFile, `workflows/${activeIssue.workflowId}/${activeIssue.currentStepFile}`),
+      ];
+  const activeIssueLabel = activeIssue === null
+    ? "none yet"
+    : activeIssue.blocked
+      ? `blocked: ${activeIssue.blockReason ?? "approval required"}`
+      : "ready";
+  const relevantRuleLinks = relevantRules.slice(0, 6).map((rulePath) => {
+    const relativeRulePath = stripFlownessPrefix(rulePath);
+    return renderMarkdownLink(relativeRulePath, relativeRulePath);
+  });
+
+  return [
+    "# Navigation",
+    "",
+    "Read this file first, then use locate or the active issue before searching broadly.",
+    "",
+    "## Read First",
+    ...readFirstLinks.map((link) => `- ${link}`),
+    `- Active issue: ${activeIssueLabel}`,
+    "",
+    "## Rules",
+    ...relevantRuleLinks.map((link) => `- ${link}`),
+    "",
+    "## File Location",
+    '- Use `flowness locate "<task description>"` to get read order, tests, and commands.',
+    `- Do not read closed issues, all logs, all workflows, all rules, or generated archives unless locate points there.`,
+    "",
+    "## Commands",
+    '- `flowness locate "<task description>"`',
+    "- `flowness test --summary`",
+    "- `flowness audit --changed`",
+    "",
+  ].join("\n");
+}
+
+function renderActiveIssueMarkdown(
+  analysis: ProjectAnalysis,
+  activeIssue: ActiveIssueNavigationContext | null,
+): string {
+  const relevantRules = deriveRelevantRuleFiles(analysis);
+
+  if (activeIssue === null) {
+    return [
+      "# Active Issue",
+      "",
+      "No active issue exists yet.",
+      "",
+      "## Where To Start",
+      `- Read ${renderMarkdownLink("navigation.md", "../navigation.md")} first.`,
+      '- Run `flowness locate "<task description>"` when you need file location guidance.',
+      "",
+      "## Rules",
+      ...relevantRules.slice(0, 6).map((rulePath) => {
+        const relativeRulePath = stripFlownessPrefix(rulePath);
+        return `- ${renderMarkdownLink(relativeRulePath, `../${relativeRulePath}`)}`;
+      }),
+      "",
+    ].join("\n");
+  }
+
+  const evidenceFiles = activeIssue.evidenceFiles.length === 0
+    ? ["- None yet."]
+    : activeIssue.evidenceFiles.map((file) => `- ${renderMarkdownLink(file, file)}`);
+
+  return [
+    "# Active Issue",
+    "",
+    `- Issue: ${renderMarkdownLink(activeIssue.issueId, `../issues/${activeIssue.issueId}/issue.md`)}`,
+    `- Title: ${activeIssue.issueTitle}`,
+    `- State: ${activeIssue.issueState}`,
+    `- Workflow: ${activeIssue.workflowId}`,
+    ...(activeIssue.blocked
+      ? [
+          `- Block reason: ${activeIssue.blockReason ?? "blocked"}`,
+          `- Pending step: ${renderMarkdownLink(activeIssue.pendingStep ?? activeIssue.currentStep, `../workflows/${activeIssue.workflowId}/${activeIssue.currentStepFile}`)}`,
+          `- Required action: ${activeIssue.requiredAction ?? "Resolve the block before continuing."}`,
+        ]
+      : [
+          `- Current step: ${renderMarkdownLink(activeIssue.currentStep, `../workflows/${activeIssue.workflowId}/${activeIssue.currentStepFile}`)}`,
+          activeIssue.nextStep === null
+            ? "- Next step: complete"
+            : `- Next step: ${renderMarkdownLink(activeIssue.nextStep, `../workflows/${activeIssue.workflowId}/${activeIssue.nextStepFile}`)}`,
+        ]),
+    `- Issue file: ${renderMarkdownLink("issue.md", `../issues/${activeIssue.issueId}/issue.md`)}`,
+    `- Workflow state: ${renderMarkdownLink("workflow-state.json", `../issues/${activeIssue.issueId}/workflow-state.json`)}`,
+    `- Issue log: ${renderMarkdownLink("issue log", `../logs/${activeIssue.issueId}.md`)}`,
+    '- File location: `flowness locate "<task description>"`',
+    "",
+    "## Evidence Files",
+    ...evidenceFiles,
+    "",
+    "## Relevant Rules",
+    ...activeIssue.relevantRules.slice(0, 8).map((rulePath) => {
+      const relativeRulePath = stripFlownessPrefix(rulePath);
+      return `- ${renderMarkdownLink(relativeRulePath, `../${relativeRulePath}`)}`;
+    }),
+    "",
+    "## Commands",
+    `- ${renderMarkdownLink("flowness test --summary", "../commands.json")}`,
+    `- ${renderMarkdownLink("flowness audit --changed", "../commands.json")}`,
+    "",
+  ].join("\n");
+}
+
 async function collectRootFiles(rootDir: string): Promise<readonly string[]> {
   const entries = await readdir(rootDir, { withFileTypes: true });
   return entries.map((entry) => entry.name).sort();
@@ -352,7 +1174,6 @@ async function collectDocumentationPaths(rootDir: string, rootFiles: readonly st
   }
 
   if (rootFiles.includes("docs") && await pathExists(join(rootDir, "docs"))) {
-    discovered.add("docs");
     const docsEntries = await readdir(join(rootDir, "docs"), { withFileTypes: true });
     for (const entry of docsEntries) {
       if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -501,20 +1322,24 @@ function renderWorkflowStepMarkdown(
 
   if (step.title === "Commit") {
     requiredInputs.push(
-      "The commit policy file under `.flowness/rules/commit-policy.md`.",
-      "The current git status, recent git log, and cached diff stat.",
-      "The final evidence review log entry.",
+      "The commit rules under `.flowness/rules/git.md`.",
+      "The active issue record and workflow state.",
+      "The Evidence Review report and log entry.",
+      "The current git status and diff summary for the changed files.",
     );
-    actions.push("Read the commit policy before staging or committing anything.");
-    actions.push("Inspect git status, git log, and diff stat before choosing the commit message.");
-    actions.push("Stage only the intended files and stop if there are no intended changes.");
-    actions.push("Report the commit hash, the message, and the changed files after the commit succeeds.");
+    actions.push("Read the git rules before staging or committing anything.");
+    actions.push("Inspect the active issue, workflow state, Evidence Review report, git status, and diff summary before choosing the commit message.");
+    actions.push("Resolve the repository from the changed files, not from the process cwd.");
+    actions.push("Stage only the approved files, exclude unsafe outputs, and stop if there are no intended changes.");
+    actions.push("Ask for approval when the project rules require it.");
+    actions.push("Report the repo root, commit hash, commit message, and changed files after the commit succeeds.");
     evidenceRequired.push(
-      "The commit policy note.",
+      "The git rules note.",
+      "The active issue record and workflow state.",
+      "The Evidence Review report and its command evidence.",
       "The git status output.",
-      "The recent git log output.",
       "The cached diff stat.",
-      "The final commit hash and changed file list.",
+      "The final repo root, commit hash, commit message, and changed file list.",
     );
     exitCriteria.push("The commit hash and changed file list are recorded.");
   }
@@ -532,7 +1357,36 @@ function renderWorkflowStepMarkdown(
     exitCriteria.push("The issue can close without any missing review gate.");
   }
 
+  if (workflow.id === "code-review") {
+    if (step.title === "Intake" || step.title === "Clarifying Questions" || step.title === "Scope Definition" || step.title === "Diff Review") {
+      requiredInputs.push(
+        ".flowness/navigation.md",
+        ".flowness/context-index.json",
+      );
+      actions.push("Use `flowness locate` and the context index to narrow the review target before broad reading.");
+      actions.push("Prefer changed files and diff summaries over full repository reads.");
+      evidenceRequired.push("The locate output or context index entry that narrowed the review surface.");
+      exitCriteria.push("The review surface is narrowed to the smallest relevant files.");
+    }
+
+    if (step.title === "Findings Synthesis" || step.title === "Evidence Review") {
+      actions.push("Run the Architecture, Correctness, Security, Test Coverage, and Maintainability perspectives before closing.");
+      evidenceRequired.push("The per-perspective findings and the consolidated recommendation.");
+      exitCriteria.push("The findings are ordered by severity and ready for recommendation.");
+    }
+  }
+
   if (workflow.id === "mvp-planning") {
+    if (step.title === "Intake" || step.title === "Requirement Analysis" || step.title === "Clarifying Questions") {
+      requiredInputs.push(
+        "docs/PRD.md",
+        "docs/ARD.md",
+      );
+      actions.push("Check whether PRD/ARD exist and create minimal versions before the plan moves forward.");
+      evidenceRequired.push("docs/PRD.md", "docs/ARD.md");
+      exitCriteria.push("PRD and ARD exist before the planning workflow reaches the later steps.");
+    }
+
     if (step.title === "Requirement Analysis") {
       requiredInputs.push(
         "The users and stakeholders behind the request.",
@@ -571,6 +1425,44 @@ function renderWorkflowStepMarkdown(
     }
   }
 
+  if (workflow.id === "feature-development") {
+    if (step.title === "Intake" || step.title === "Clarifying Questions" || step.title === "Requirement Analysis") {
+      requiredInputs.push(
+        "docs/PRD.md",
+        "docs/ARD.md",
+      );
+      actions.push("Check whether PRD/ARD or equivalent docs exist and create minimal versions if they are missing.");
+      evidenceRequired.push("docs/PRD.md", "docs/ARD.md");
+      exitCriteria.push("PRD/ARD exist before implementation starts.");
+    }
+  }
+
+  const requiredInputFiles = [
+    renderMarkdownLink("navigation.md", "../../navigation.md"),
+    renderMarkdownLink("project-profile.md", "../../project-profile.md"),
+    renderMarkdownLink("context-index.json", "../../context-index.json"),
+    renderMarkdownLink("harness-manifest.json", "../../harness-manifest.json"),
+    renderMarkdownLink("active-issue.md", "../../state/active-issue.md"),
+    renderMarkdownLink("issue.md", "../../issues/ISSUE-ID/issue.md"),
+    renderMarkdownLink("workflow-state.json", "../../issues/ISSUE-ID/workflow-state.json"),
+    renderMarkdownLink("issue log", "../../logs/ISSUE-ID.md"),
+    renderMarkdownLink("PRD.md", "../../../docs/PRD.md"),
+    renderMarkdownLink("ARD.md", "../../../docs/ARD.md"),
+  ];
+
+  const requiredOutputFiles = [
+    renderMarkdownLink("issue.md", "../../issues/ISSUE-ID/issue.md"),
+    renderMarkdownLink("workflow-state.json", "../../issues/ISSUE-ID/workflow-state.json"),
+    renderMarkdownLink("issue log", "../../logs/ISSUE-ID.md"),
+    renderMarkdownLink("PRD.md", "../../../docs/PRD.md"),
+    renderMarkdownLink("ARD.md", "../../../docs/ARD.md"),
+  ];
+
+  const relevantRuleLinks = deriveRelevantRuleFiles(analysis).map((rulePath) => {
+    const relativeRulePath = stripFlownessPrefix(rulePath);
+    return renderMarkdownLink(relativeRulePath, `../../${relativeRulePath}`);
+  });
+
   return [
     "---",
     `workflow: ${workflow.id}`,
@@ -606,6 +1498,15 @@ function renderWorkflowStepMarkdown(
     `- Package manager: ${analysis.packageManager}`,
     `- Language: ${analysis.language}`,
     `- Framework: ${analysis.framework}`,
+    "",
+    "## Required Input Files",
+    ...requiredInputFiles.map((item) => `- ${item}`),
+    "",
+    "## Required Output Files",
+    ...requiredOutputFiles.map((item) => `- ${item}`),
+    "",
+    "## Relevant Rules",
+    ...relevantRuleLinks.map((link) => `- ${link}`),
     "",
     "## Required Inputs",
     ...requiredInputs.map((item) => `- ${item}`),
@@ -719,7 +1620,7 @@ export function renderProjectAnalysis(rootDir: string, projectName?: string): Pr
       notes.push("No source directories were detected.");
     }
     if (documentationPaths.length === 0) {
-      notes.push("No README or docs paths were detected.");
+      notes.push("No README or docs files were detected.");
     }
 
     const fallbackName = rootDir.split(/[/\\]/).filter(Boolean).at(-1) ?? "flowness";
@@ -744,88 +1645,32 @@ export function renderProjectAnalysis(rootDir: string, projectName?: string): Pr
 }
 
 export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string {
-  const buildCommand = analysis.buildCommand ?? "TODO: detect build command";
-  const testCommand = analysis.testCommand ?? "TODO: detect test command";
-  const lintCommand = analysis.lintCommand ?? "TODO: detect lint command";
-
   return [
+    "<!-- FLOWNESS:BEGIN -->",
     "# AGENTS",
     "",
-    "Flowness keeps project guidance intentionally small.",
+    "Keep this file short and use the generated navigation files for details.",
     "",
-    "## How To Work",
-    '- Use `flowness run "<request>"` for new work requests.',
-    "- Use `flowness step --issue ISSUE-ID` to advance exactly one workflow step.",
-    "- Use `flowness status --issue ISSUE-ID` before and after transitions.",
-    "- Use `flowness evidence:add --issue ISSUE-ID ...` to record evidence without editing JSON by hand.",
+    "## Start Here",
+    "- Read `.flowness/navigation.md` first.",
+    "- Use `.flowness/context-index.json` to locate files.",
+    "- Use `.flowness/commands.json` for commands.",
+    '- Use `flowness run`, `flowness review:run`, `flowness step`, `flowness status`, `flowness locate "<task description>"`, `flowness test --summary`, and `flowness audit --changed`.',
     "- Treat `.flowness/` as the source of truth and `.agent/` as legacy only.",
-    "- Do not edit issue, state, or evidence JSON directly.",
-    "- Ask clarification questions before implementation when requirements are incomplete.",
-    "- Reuse an open issue when the request matches existing work.",
-    "- Keep large requests split into smaller, verifiable issues.",
+    "- Keep issue logs append-only and keep evidence summaries short.",
+    "- Never edit workflow state by hand.",
     "",
-    "## Workflow Discipline",
-    "- Never skip workflow steps.",
-    "- Never advance workflow state before appending the matching log entry.",
-    "- Never pass a human gate without explicit approval evidence in the log.",
-    "- Follow the `Next` link in each workflow step file before moving on.",
-    "- Stop and recover first if the workflow state and log do not match.",
-    "- Commit only after Evidence Review and the commit policy check.",
+    "## Current Project",
+    `- Project: ${analysis.projectName} | Package manager: ${analysis.packageManager} | Language: ${analysis.language} | Framework: ${analysis.framework}`,
     "",
-    "## Context Files",
-    "- `.flowness/project-profile.md`",
-    "- `.flowness/context-index.json`",
-    "- `.flowness/commands.json`",
-    "- `.flowness/harness-manifest.json`",
-    "",
-    "## Project Context",
-    `- Project: ${analysis.projectName}`,
-    `- Package manager: ${analysis.packageManager}`,
-    `- Language: ${analysis.language}`,
-    `- Framework: ${analysis.framework}`,
-    renderCommandLine("Build command", analysis.buildCommand),
-    renderCommandLine("Test command", analysis.testCommand),
-    renderCommandLine("Lint command", analysis.lintCommand),
-    analysis.sourceDirectories.length === 0
-      ? "- Source directories: TODO: detect source directories."
-      : `- Source directories: ${analysis.sourceDirectories.join(", ")}`,
-    analysis.documentationPaths.length === 0
-      ? "- Documentation paths: TODO: detect README/docs paths."
-      : `- Documentation paths: ${analysis.documentationPaths.join(", ")}`,
-    `- Git status: ${analysis.gitStatus}`,
-    "",
-    "## Workflow Files",
-    "- `.flowness/rules/flowness-activation.md`",
-    "- `.flowness/rules/request-analysis.md`",
-    "- `.flowness/rules/clarification-policy.md`",
-    "- `.flowness/rules/issue-decomposition.md`",
-    "- `.flowness/rules/fail-closed-workflow.md`",
-    "- `.flowness/rules/workflow-routing.md`",
-    "- `.flowness/rules/definition-of-done.md`",
-    "- `.flowness/rules/evidence-policy.md`",
-    "- `.flowness/rules/commit-policy.md`",
-    "- `.flowness/rules/*.md`",
-    "- `.flowness/project-profile.md`",
-    "- `.flowness/context-index.json`",
-    "- `.flowness/commands.json`",
-    "- `.flowness/harness-manifest.json`",
-    "- `.flowness/scripts/README.md`",
-    "- `.flowness/scripts/flowness-runner.ts`",
-    "- `.flowness/scripts/workflow-guard.ts`",
-    "- `.flowness/workflows/feature-development/`",
-    "- `.flowness/workflows/code-review/`",
-    "- `.flowness/workflows/bug-fix/`",
-    "- `.flowness/workflows/refactoring/`",
-    "- `.flowness/workflows/mvp-planning/`",
-    "",
-    "## Verification",
-    `- Build: ${buildCommand}`,
-    `- Test: ${testCommand}`,
-    `- Lint: ${lintCommand}`,
+    "## Rules",
+    "- `.flowness/rules/git.md`, `.flowness/rules/commit-policy.md`, `.flowness/rules/evidence-policy.md`, `.flowness/rules/workflow-routing.md`, and other `.flowness/rules/*.md` files.",
     "",
     "## Notes",
-    "- Do not rely on `master-plan.md` unless you are working on Flowness itself.",
-    renderProjectNotes(analysis.notes),
+    "- See `.flowness/project-profile.md` for any detected caveats.",
+    "- Do not paste long transcripts into logs, findings, or reviews.",
+    "",
+    "<!-- FLOWNESS:END -->",
     "",
   ].join("\n");
 }
@@ -848,7 +1693,7 @@ export function renderGeneratedProjectProfileMarkdown(analysis: ProjectAnalysis)
     renderList("Detected source directories", analysis.sourceDirectories),
     "",
     "## Documentation",
-    renderList("Detected README/docs paths", analysis.documentationPaths),
+    renderList("Detected README/docs files", analysis.documentationPaths),
     "",
     "## Git Status",
     analysis.gitStatus,
@@ -864,9 +1709,15 @@ export function renderGeneratedProjectCommandsMarkdown(analysis: ProjectAnalysis
     commands: {
       init: "flowness init",
       run: 'flowness run "<request>"',
+      reviewRun: "flowness review:run --issue ISSUE-ID",
       step: "flowness step --issue ISSUE-ID",
       status: "flowness status --issue ISSUE-ID",
+      locate: 'flowness locate "<task description>"',
+      testSummary: "flowness test --summary",
+      auditChanged: "flowness audit --changed",
+      auditFull: "flowness audit --full",
       evidenceAdd: "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path",
+      ruleUpdate: "flowness rule:update --id RULE-ID --input \"...\"",
       validate: "flowness validate",
       workflowValidate: "flowness workflow:validate [workflow-id]",
     },
@@ -879,37 +1730,50 @@ export function renderGeneratedProjectCommandsMarkdown(analysis: ProjectAnalysis
   }, null, 2) + "\n";
 }
 
-function renderGeneratedContextIndexJson(analysis: ProjectAnalysis): string {
+function renderGeneratedFindingsReadmeMarkdown(analysis: ProjectAnalysis): string {
+  return [
+    "# Findings",
+    "",
+    "Use this directory for real review findings only.",
+    "",
+    "## Format",
+    "- Keep each finding compact.",
+    "- Use ID, Perspective, Severity, File/path, Evidence, Problem, Recommendation, and Requires follow-up issue.",
+    "- Order the most severe findings first.",
+    "- Link to the smallest file or command evidence that proves the issue.",
+    "- Do not paste long transcripts here.",
+    "",
+    "## Commands",
+    "- `flowness review:run --issue ISSUE-ID`",
+    "- `flowness test --summary`",
+    "",
+    "## Notes",
+    "- Findings should be concise enough to scan quickly.",
+    "- Use the template under `.flowness/templates/finding-template.md` when drafting a new finding.",
+    renderProjectNotes(analysis.notes),
+    "",
+  ].join("\n");
+}
+
+async function renderGeneratedContextIndexJson(
+  analysis: ProjectAnalysis,
+  rootDir: string,
+): Promise<string> {
+  const contextIndex = await buildContextIndex(rootDir, analysis);
   return JSON.stringify({
     projectName: analysis.projectName,
     rootDir: ".",
-    files: {
-      config: ".flowness/config/project.yaml",
-      projectProfile: ".flowness/project-profile.md",
-      contextIndex: ".flowness/context-index.json",
-      commands: ".flowness/commands.json",
-      harnessManifest: ".flowness/harness-manifest.json",
-    },
-    directories: {
-      issues: ".flowness/issues",
-      logs: ".flowness/logs",
-      workflows: ".flowness/workflows",
-      rules: ".flowness/rules",
-      skills: ".flowness/skills",
-      scripts: ".flowness/scripts",
-      templates: ".flowness/templates",
-      prompts: ".flowness/prompts",
-      settings: ".flowness/settings",
-      state: ".flowness/state",
-    },
-    sourceDirectories: analysis.sourceDirectories,
-    documentationPaths: analysis.documentationPaths,
+    areas: contextIndex.areas,
   }, null, 2) + "\n";
 }
 
-function renderGeneratedHarnessManifestJson(analysis: ProjectAnalysis): string {
-  return JSON.stringify({
-    version: "0.1.4",
+function renderGeneratedHarnessManifestJson(
+  analysis: ProjectAnalysis,
+  activeIssue: ActiveIssueNavigationContext | null = null,
+  generatedFileHashes: GeneratedFileHashes = {},
+): string {
+  const payload = {
+    version: "0.1.5",
     project: {
       name: analysis.projectName,
       packageManager: analysis.packageManager,
@@ -919,15 +1783,23 @@ function renderGeneratedHarnessManifestJson(analysis: ProjectAnalysis): string {
     contextFiles: {
       projectProfile: ".flowness/project-profile.md",
       contextIndex: ".flowness/context-index.json",
+      navigation: ".flowness/navigation.md",
       commands: ".flowness/commands.json",
       harnessManifest: ".flowness/harness-manifest.json",
+      activeIssue: ".flowness/state/active-issue.md",
+      findings: ".flowness/findings/README.md",
+      prd: "docs/PRD.md",
+      ard: "docs/ARD.md",
     },
     workspace: {
       config: ".flowness/config/project.yaml",
+      findings: ".flowness/findings",
+      docs: "docs",
       issues: ".flowness/issues",
       logs: ".flowness/logs",
       workflows: ".flowness/workflows",
       rules: ".flowness/rules",
+      rulesTech: ".flowness/rules/tech",
       skills: ".flowness/skills",
       scripts: ".flowness/scripts",
       templates: ".flowness/templates",
@@ -937,24 +1809,155 @@ function renderGeneratedHarnessManifestJson(analysis: ProjectAnalysis): string {
     },
     commands: {
       run: "flowness run \"<request>\"",
+      reviewRun: "flowness review:run --issue ISSUE-ID",
       step: "flowness step --issue ISSUE-ID",
       status: "flowness status --issue ISSUE-ID",
+      locate: "flowness locate \"<task description>\"",
+      testSummary: "flowness test --summary",
+      auditChanged: "flowness audit --changed",
+      auditFull: "flowness audit --full",
       evidenceAdd: "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path",
+      ruleUpdate: "flowness rule:update --id RULE-ID --input \"...\"",
       validate: "flowness validate",
+    },
+    relevantRules: deriveRelevantRuleFiles(analysis),
+    activeIssue: activeIssue === null ? null : {
+      issueId: activeIssue.issueId,
+      issueState: activeIssue.issueState,
+      workflowId: activeIssue.workflowId,
+      currentStep: activeIssue.currentStep,
+      nextStep: activeIssue.nextStep,
+      blocked: activeIssue.blocked,
+      blockReason: activeIssue.blockReason,
+      pendingStep: activeIssue.pendingStep,
+      requiredAction: activeIssue.requiredAction,
+      issueFile: activeIssue.issueFile,
+      workflowStateFile: activeIssue.workflowStateFile,
+      issueLogFile: activeIssue.issueLogFile,
+      currentStepFile: activeIssue.currentStepFile,
+      nextStepFile: activeIssue.nextStepFile,
+      evidenceFiles: [...activeIssue.evidenceFiles],
+      relevantRules: [...activeIssue.relevantRules],
     },
     sourceDirectories: analysis.sourceDirectories,
     documentationPaths: analysis.documentationPaths,
     gitStatus: analysis.gitStatus,
     notes: analysis.notes,
-  }, null, 2) + "\n";
+    generatedFileHashes,
+  };
+
+  const manifestHash = sha256Hex(`${JSON.stringify(payload, null, 2)}\n`);
+  return `${JSON.stringify({
+    ...payload,
+    manifestHash,
+  }, null, 2)}\n`;
 }
 
-export function renderGeneratedConfigArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
-  return [
+export function renderGeneratedConfigArtifacts(
+  analysis: ProjectAnalysis,
+  activeIssue: ActiveIssueNavigationContext | null = null,
+  rootDir?: string,
+): Promise<readonly ScaffoldArtifact[]> {
+  const resolvedRootDir = rootDir ?? ".";
+  return (async () => [
     artifact(".flowness/project-profile.md", renderGeneratedProjectProfileMarkdown(analysis)),
-    artifact(".flowness/context-index.json", renderGeneratedContextIndexJson(analysis)),
+    artifact(".flowness/context-index.json", await renderGeneratedContextIndexJson(analysis, resolvedRootDir)),
     artifact(".flowness/commands.json", renderGeneratedProjectCommandsMarkdown(analysis)),
-    artifact(".flowness/harness-manifest.json", renderGeneratedHarnessManifestJson(analysis)),
+    artifact(".flowness/findings/README.md", renderGeneratedFindingsReadmeMarkdown(analysis)),
+  ])();
+}
+
+export function renderGeneratedHarnessManifestArtifact(
+  analysis: ProjectAnalysis,
+  activeIssue: ActiveIssueNavigationContext | null = null,
+  generatedFileHashes: GeneratedFileHashes = {},
+): ScaffoldArtifact {
+  return artifact(".flowness/harness-manifest.json", renderGeneratedHarnessManifestJson(analysis, activeIssue, generatedFileHashes));
+}
+
+export function renderGeneratedNavigationArtifacts(
+  analysis: ProjectAnalysis,
+  activeIssue: ActiveIssueNavigationContext | null = null,
+): readonly ScaffoldArtifact[] {
+  return [
+    artifact(".flowness/navigation.md", renderNavigationMarkdown(analysis, activeIssue)),
+    artifact(".flowness/state/active-issue.md", renderActiveIssueMarkdown(analysis, activeIssue)),
+  ];
+}
+
+export function renderGeneratedPlanningDocArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
+  return [
+    artifact("docs/PRD.md", renderPlanningDocMarkdown({
+      title: "PRD",
+      intro: "Product requirements document for the current project.",
+      summary: "Capture the topic, target users, main problem, core features, non-goals, acceptance criteria, and open questions before implementation starts.",
+      sections: [
+        {
+          title: "## Product Topic / Users / Problem",
+          bullets: [
+            "Product topic: TODO",
+            "Target users: TODO",
+            "Main problem: TODO",
+          ],
+        },
+        {
+          title: "## Core Features / Non-goals",
+          bullets: [
+            "Core features: TODO",
+            "Non-goals: TODO",
+            "Acceptance criteria: TODO",
+          ],
+        },
+        {
+          title: "## Open Questions",
+          bullets: [
+            "What tradeoffs still need user confirmation?",
+            "What should stay out of the first delivery?",
+          ],
+        },
+      ],
+      links: [
+        renderMarkdownLink("Navigation", "../.flowness/navigation.md"),
+        renderMarkdownLink("ARD", "ARD.md"),
+      ],
+    })),
+    artifact("docs/ARD.md", renderPlanningDocMarkdown({
+      title: "ARD",
+      intro: "Architecture requirements document for the current project.",
+      summary: "Record the language, framework, package manager, runtime/version, storage, auth, scale, deployment, and testing expectations before implementation starts.",
+      sections: [
+        {
+          title: "## Stack",
+          bullets: [
+            `Language: ${analysis.language}`,
+            `Framework: ${analysis.framework}`,
+            `Package manager: ${analysis.packageManager}`,
+            analysis.buildCommand === null ? "Runtime/version: TODO" : `Build command: ${analysis.buildCommand}`,
+          ],
+        },
+        {
+          title: "## Storage / Auth / Deployment / Scale",
+          bullets: [
+            "Database / storage: TODO",
+            "Auth requirement: TODO",
+            "Expected scale: TODO",
+            "Deployment target: TODO",
+          ],
+        },
+        {
+          title: "## Test Strategy / Security",
+          bullets: [
+            analysis.testCommand === null ? "Test strategy: TODO" : `Test strategy: use ${analysis.testCommand}`,
+            analysis.lintCommand === null ? "Lint strategy: TODO" : `Lint strategy: use ${analysis.lintCommand}`,
+            "Security concerns: TODO",
+          ],
+        },
+      ],
+      links: [
+        renderMarkdownLink("Navigation", "../.flowness/navigation.md"),
+        renderMarkdownLink("PRD", "PRD.md"),
+      ],
+    })),
   ];
 }
 
@@ -971,8 +1974,12 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- `workflow-routing.md`",
       "- `definition-of-done.md`",
       "- `evidence-policy.md`",
+      "- `git.md`",
       "- `commit-policy.md`",
       "- `workflow-step-contract.md`",
+      "- `project-overrides.md`",
+      "- `change-log.md`",
+      "- `tech/README.md`",
       "",
       "These rules keep the project-specific workflow disciplined and evidence-backed.",
       "",
@@ -981,22 +1988,26 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "# Request Analysis",
       "",
       "- First classify the request before creating any issue.",
+      "- Treat missing essential requirements as blockers before planning or coding.",
       "- Use `casual_or_question` for greetings and simple Q&A; do not create an issue.",
       "- Use `single_development_task` for a one-off implementation task.",
       "- Use `mvp_or_product_planning` for MVP or product planning requests and route them to `mvp-planning`.",
       "- Use `multi_issue_project` when the request should be split into multiple child issues.",
       "- Route review, bug fix, and refactor requests to their matching workflows.",
       "- Reuse an existing open issue when the request matches the same work item.",
+      "- Route clear architecture, testing, or framework preference updates to `rule:update` instead of issue creation.",
       "",
     ].join("\n")),
     artifact(".flowness/rules/clarification-policy.md", [
       "# Clarification Policy",
       "",
-      "- Ask clarification questions early in every workflow.",
+      "- Ask clarification questions early in every workflow and before any planning or coding begins if required inputs are missing.",
+      "- For MVP or product planning, require product topic, target users, main problem, core features, language, framework, package manager, runtime or version, database or storage, auth requirement, expected scale, deployment target, test strategy, and non-goals.",
+      "- For feature development, require the feature goal, user flow, target files or modules if known, API or UI behavior, data model impact, validation rules, error handling, security concerns, test expectations, and acceptance criteria.",
       "- When requirements are incomplete, ask detailed questions with multiple options, explicit pros and cons, a recommended default, and a clear request for the user's choice.",
       "- Log assumptions whenever requirements are incomplete.",
       "- Stop before implementation if a required answer is still missing.",
-      "- Make missing users, goals, constraints, risks, acceptance criteria, data model, security, testing, and non-goals explicit.",
+      "- Make missing users, goals, constraints, risks, acceptance criteria, data model, security, testing, non-goals, PRD, and ARD explicit.",
       "",
     ].join("\n")),
     artifact(".flowness/rules/issue-decomposition.md", [
@@ -1078,20 +2089,8 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- Keep evidence append-only in the issue log.",
       "",
     ].join("\n")),
-    artifact(".flowness/rules/commit-policy.md", [
-      "# Commit Policy",
-      "",
-      "- Read this policy immediately before creating the final commit step.",
-      "- Inspect `git status --short --untracked-files=all` before staging.",
-      "- Inspect `git log --oneline --graph --decorate -n 5` before choosing the commit message.",
-      "- Inspect `git diff --stat --cached` after staging and before committing.",
-      "- Stage only the files that belong to the issue or workflow step.",
-      "- Choose a commit prefix that matches the repository history when possible.",
-      "- Commit only after Evidence Review is complete and the review log is aligned with state.",
-      "- If no intended changes exist, stop and record the reason instead of committing an empty diff.",
-      "- Report the commit hash, the message, and the changed files after the commit succeeds.",
-      "",
-    ].join("\n")),
+    artifact(".flowness/rules/git.md", renderGitRuleMarkdown(analysis, "Git Rules")),
+    artifact(".flowness/rules/commit-policy.md", renderGitRuleMarkdown(analysis, "Commit Policy")),
     artifact(".flowness/rules/workflow-step-contract.md", [
       "# Workflow Step Contract",
       "",
@@ -1105,6 +2104,45 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- If a review fails, log the recovery path before trying again.",
       "",
     ].join("\n")),
+    artifact(".flowness/rules/project-overrides.md", [
+      "# Project Overrides",
+      "",
+      "- Use this file for project-specific rule changes that should override the defaults.",
+      "- Keep updates append-only and record why the default was not enough.",
+      "- Link any rule update back to the relevant issue, request, or decision.",
+      "",
+      "## Current Overrides",
+      "- Record the first override below this line.",
+      "",
+    ].join("\n")),
+    artifact(".flowness/rules/change-log.md", [
+      "# Rule Change Log",
+      "",
+      "- Append-only history of rule updates and overrides.",
+      "- Every update should record the source instruction, target rule file, and why it changed.",
+      "",
+      "## Entries",
+      "- Add the first rule update entry below this line.",
+      "",
+    ].join("\n")),
+    artifact(".flowness/rules/tech/README.md", [
+      "# Tech Rules",
+      "",
+      "- `java.md`",
+      "- `javascript.md`",
+      "- `typescript.md`",
+      "- `python.md`",
+      "- `spring.md`",
+      "- `react.md`",
+      "- `nextjs.md`",
+      "- `nestjs.md`",
+      "- `django.md`",
+      "",
+      "These files hold the default language and framework guidance for the project.",
+      "Use `project-overrides.md` for any stronger project-specific exceptions.",
+      "",
+    ].join("\n")),
+    ...techRuleSpecs.map((spec) => artifact(`.flowness/rules/tech/${spec.fileName}`, renderTechRuleMarkdown(spec, analysis))),
   ];
 }
 
@@ -1239,17 +2277,71 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
       "# Review Template",
       "",
       "## Scope",
-      "Summarize the files or change set being reviewed.",
+      "Summarize the review target and the files or change set being reviewed.",
+      "",
+      "## Target",
+      "- Current working tree",
+      "- Staged diff",
+      "- Last commit",
+      "- Specific files",
+      "- Active issue changes",
+      "- PR or branch",
       "",
       "## Findings",
-      "- Blocking",
-      "- Non-blocking",
+      "- Blocking findings",
+      "- Concern findings",
+      "",
+      "## Perspective Results",
+      "- Architecture Reviewer",
+      "- Correctness Reviewer",
+      "- Security Reviewer",
+      "- Test Coverage Reviewer",
+      "- Maintainability Reviewer",
+      "- Performance Reviewer",
+      "- Documentation Reviewer",
       "",
       "## Evidence",
       `- Use the detected commands when available: ${analysis.testCommand ?? "TODO"}, ${analysis.buildCommand ?? "TODO"}.`,
       "",
       "## Follow-up",
-      "List the smallest next action if a fix is needed.",
+      "List the smallest next action, the follow-up issue suggestion, and any review limitations.",
+      "",
+    ].join("\n")),
+    artifact(".flowness/templates/finding-template.md", [
+      "# Finding Template",
+      "",
+      "## ID",
+      "ARCH-001",
+      "",
+      "## Perspective",
+      "Architecture Reviewer",
+      "",
+      "## Severity",
+      "critical | high | medium | low",
+      "",
+      "## File/path",
+      "path/to/file.ts",
+      "",
+      "## Evidence",
+      "- Link to the smallest file, log entry, or command output that proves the finding.",
+      "",
+      "## Problem",
+      "State the issue in one sentence.",
+      "",
+      "## Actual",
+      "State the behavior that did happen or the mismatch that was observed.",
+      "",
+      "## Recommendation",
+      "- State the smallest safe change.",
+      "",
+      "## Requires follow-up issue",
+      "yes | no",
+      "",
+      "## Rationale",
+      "Explain why this finding matters.",
+      "",
+      "## Regression Test",
+      "- State the command or test that should prevent the regression from returning.",
       "",
     ].join("\n")),
     artifact(".flowness/templates/log-entry-template.md", [
@@ -1281,6 +2373,7 @@ export function renderGeneratedTemplateArtifacts(analysis: ProjectAnalysis): rea
       "- `issue-breakdown-template.md`",
       "- `decision-template.md`",
       "- `review-template.md`",
+      "- `finding-template.md`",
       "- `log-entry-template.md`",
       "",
       "These templates are small, project-aware starting points for issue work.",
@@ -1495,6 +2588,7 @@ export function renderGeneratedScriptsReadmeMarkdown(analysis: ProjectAnalysis):
     "## Notes",
     "- Keep helper scripts small and deterministic.",
     "- If a command is missing, add a TODO instead of guessing.",
+    "- Read `.flowness/navigation.md` before broad file searching or manual navigation.",
     "- Use `flowness step --issue ISSUE-ID`, `flowness status --issue ISSUE-ID`, and `flowness evidence:add ...` instead of editing workflow JSON by hand.",
     "",
   ].join("\n");

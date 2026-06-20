@@ -65,7 +65,11 @@ async function main() {
   ensureOutputIncludes(helpOutput, "flowness init", "CLI help");
   ensureOutputIncludes(helpOutput, "flowness run", "CLI help");
   ensureOutputIncludes(helpOutput, "flowness status", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness locate", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness test", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness audit", "CLI help");
   ensureOutputIncludes(helpOutput, "flowness evidence:add", "CLI help");
+  ensureOutputIncludes(helpOutput, "flowness rule:update", "CLI help");
   ensureOutputIncludes(helpOutput, "flowness step", "CLI help");
 
   const sandboxRoot = mkdtempSync(join(tmpdir(), "flowness-audit-"));
@@ -80,10 +84,22 @@ async function main() {
     ensureFile(join(sandboxRoot, ".flowness/context-index.json"), "init scaffold context index");
     ensureFile(join(sandboxRoot, ".flowness/commands.json"), "init scaffold commands");
     ensureFile(join(sandboxRoot, ".flowness/harness-manifest.json"), "init scaffold harness manifest");
+    ensureFile(join(sandboxRoot, ".flowness/navigation.md"), "init scaffold navigation");
+    ensureFile(join(sandboxRoot, ".flowness/state/active-issue.md"), "init scaffold active issue");
+    ensureFile(join(sandboxRoot, ".flowness/findings/README.md"), "init scaffold findings readme");
+    ensureFile(join(sandboxRoot, ".flowness/templates/finding-template.md"), "init scaffold finding template");
+    ensureFile(join(sandboxRoot, ".flowness/rules/git.md"), "init scaffold git rules");
     ensureFile(join(sandboxRoot, ".flowness/rules/commit-policy.md"), "init scaffold commit policy");
+    ensureFile(join(sandboxRoot, ".flowness/rules/project-overrides.md"), "init scaffold project overrides");
+    ensureFile(join(sandboxRoot, ".flowness/rules/change-log.md"), "init scaffold rule change log");
+    ensureFile(join(sandboxRoot, ".flowness/rules/tech/README.md"), "init scaffold tech rule index");
+    ensureFile(join(sandboxRoot, ".flowness/rules/tech/react.md"), "init scaffold react rule");
+    ensureFile(join(sandboxRoot, ".flowness/rules/tech/typescript.md"), "init scaffold typescript rule");
     ensureFile(join(sandboxRoot, ".flowness/scripts/flowness-runner.ts"), "init scaffold runner script");
     ensureFile(join(sandboxRoot, ".flowness/scripts/workflow-guard.ts"), "init scaffold workflow guard");
     ensureFile(join(sandboxRoot, ".flowness/scripts/check-md-size.py"), "init scaffold script");
+    ensureFile(join(sandboxRoot, "docs/PRD.md"), "init scaffold PRD");
+    ensureFile(join(sandboxRoot, "docs/ARD.md"), "init scaffold ARD");
     ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/README.md"), "init scaffold feature workflow");
     ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/07-commit.md"), "init scaffold feature commit step");
     ensureFile(join(sandboxRoot, ".flowness/workflows/mvp-planning/08-commit.md"), "init scaffold mvp commit step");
@@ -97,18 +113,74 @@ async function main() {
       throw new Error("init created legacy .agent or .codex directories.");
     }
 
-    const commandsJson = readFileSync(join(sandboxRoot, ".flowness/commands.json"), "utf8");
-    ensureOutputIncludes(commandsJson, "flowness run", "commands.json");
-    ensureOutputIncludes(commandsJson, "flowness status", "commands.json");
-    ensureOutputIncludes(commandsJson, "flowness evidence:add", "commands.json");
+    const commandsJson = JSON.parse(readFileSync(join(sandboxRoot, ".flowness/commands.json"), "utf8"));
+    if (commandsJson.commands.run !== "flowness run \"<request>\"") {
+      throw new Error("commands.json run command is incorrect.");
+    }
+    if (commandsJson.commands.status !== "flowness status --issue ISSUE-ID") {
+      throw new Error("commands.json status command is incorrect.");
+    }
+    if (commandsJson.commands.locate !== "flowness locate \"<task description>\"") {
+      throw new Error("commands.json locate command is incorrect.");
+    }
+    if (commandsJson.commands.testSummary !== "flowness test --summary") {
+      throw new Error("commands.json test command is incorrect.");
+    }
+    if (commandsJson.commands.auditChanged !== "flowness audit --changed") {
+      throw new Error("commands.json audit command is incorrect.");
+    }
+    if (commandsJson.commands.evidenceAdd !== "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path") {
+      throw new Error("commands.json evidence command is incorrect.");
+    }
+    if (commandsJson.commands.ruleUpdate !== "flowness rule:update --id RULE-ID --input \"...\"") {
+      throw new Error("commands.json rule update command is incorrect.");
+    }
 
-    const manifestJson = readFileSync(join(sandboxRoot, ".flowness/harness-manifest.json"), "utf8");
-    ensureOutputIncludes(manifestJson, "\"version\": \"0.1.4\"", "harness manifest");
-    ensureOutputIncludes(manifestJson, ".flowness/state", "harness manifest");
+    const manifestJson = JSON.parse(readFileSync(join(sandboxRoot, ".flowness/harness-manifest.json"), "utf8"));
+    if (manifestJson.version !== "0.1.5") {
+      throw new Error("harness manifest version is incorrect.");
+    }
+    if (manifestJson.contextFiles.findings !== ".flowness/findings/README.md") {
+      throw new Error("harness manifest findings path is incorrect.");
+    }
+    if (manifestJson.contextFiles.activeIssue !== ".flowness/state/active-issue.md") {
+      throw new Error("harness manifest active issue path is incorrect.");
+    }
+    if (manifestJson.contextFiles.navigation !== ".flowness/navigation.md") {
+      throw new Error("harness manifest navigation path is incorrect.");
+    }
+    if (manifestJson.contextFiles.prd !== "docs/PRD.md") {
+      throw new Error("harness manifest PRD path is incorrect.");
+    }
+    if (manifestJson.commands.locate !== "flowness locate \"<task description>\"") {
+      throw new Error("harness manifest locate command is incorrect.");
+    }
+    if (manifestJson.commands.testSummary !== "flowness test --summary") {
+      throw new Error("harness manifest test command is incorrect.");
+    }
+    if (manifestJson.commands.auditChanged !== "flowness audit --changed") {
+      throw new Error("harness manifest audit command is incorrect.");
+    }
 
     const contextIndexJson = readFileSync(join(sandboxRoot, ".flowness/context-index.json"), "utf8");
-    ensureOutputIncludes(contextIndexJson, ".flowness/project-profile.md", "context index");
-    ensureOutputIncludes(contextIndexJson, ".flowness/commands.json", "context index");
+    const contextIndex = JSON.parse(contextIndexJson);
+    if (!Array.isArray(contextIndex.areas)) {
+      throw new Error("context index is missing an areas array.");
+    }
+    if (!contextIndex.areas.some((area) => area.area === "findings")) {
+      throw new Error("context index is missing the findings area.");
+    }
+    if (!contextIndex.areas.some((area) => area.area === "navigation")) {
+      throw new Error("context index is missing the navigation area.");
+    }
+    if (!contextIndex.areas.some((area) => area.area === "source")) {
+      throw new Error("context index is missing the source area.");
+    }
+
+    const agents = readFileSync(join(sandboxRoot, "AGENTS.md"), "utf8");
+    ensureOutputIncludes(agents, "flowness locate \"<task description>\"", "AGENTS.md");
+    ensureOutputIncludes(agents, "flowness test --summary", "AGENTS.md");
+    ensureOutputIncludes(agents, "flowness audit --changed", "AGENTS.md");
 
     const validateOutput = runCommand("validate-sandbox", flownessCommand, ["validate"], sandboxRoot);
     ensureOutputIncludes(validateOutput, "Workflow validation passed for workspace.", "validate output");

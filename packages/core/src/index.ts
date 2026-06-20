@@ -18,6 +18,7 @@ export {
   readTextFile,
   makeExecutable,
   slugify,
+  sha256Hex,
   toUpperSnake,
   writeJsonFile,
   writeTextFile,
@@ -25,6 +26,37 @@ export {
 export {
   initializeProject,
 } from "./scaffold.js";
+export {
+  buildContextIndex,
+  locateContextIndexArea,
+} from "./context-index.js";
+export type {
+  ContextIndex,
+  ContextIndexArea,
+  LocateContextResult,
+} from "./context-index.js";
+export {
+  renderGeneratedAgentsMarkdown,
+  renderGeneratedConfigArtifacts,
+  renderGeneratedHarnessManifestArtifact,
+  renderGeneratedNavigationArtifacts,
+  renderGeneratedPlanningDocArtifacts,
+  renderGeneratedRuleArtifacts,
+  renderGeneratedTemplateArtifacts,
+  renderGeneratedWorkflowArtifacts,
+  renderProjectAnalysis,
+} from "./init-scaffold.js";
+export type {
+  ActiveIssueNavigationContext,
+  ProjectAnalysis,
+  ScaffoldArtifact,
+} from "./init-scaffold.js";
+export {
+  summarizeTestRunOutput,
+} from "./output-summary.js";
+export type {
+  TestRunSummary,
+} from "./output-summary.js";
 export {
   analyzeRequest,
   classifyRequest,
@@ -38,8 +70,10 @@ export {
 export type {
   ClarificationQuestion,
   ClarificationQuestionOption,
+  RequestExecutionMode,
   RequestCategory,
   RequestAnalysis,
+  RequestIntent,
   RequestIssuePlanBundle,
 } from "./request-routing.js";
 export {

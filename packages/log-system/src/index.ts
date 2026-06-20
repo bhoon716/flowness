@@ -9,6 +9,9 @@ export interface ParsedIssueLogEntry {
   readonly nextStep: string | null;
 }
 
+const maxEvidenceDetailLines = 3;
+const maxEvidenceDetailChars = 240;
+
 export function createLogEntry(input: {
   readonly timestamp: string;
   readonly step: string;
@@ -46,10 +49,35 @@ function renderEvidenceLines(evidence: readonly EvidenceRecord[]): string[] {
   const lines: string[] = [];
   for (const item of evidence) {
     const location = item.location ? ` (${item.location})` : "";
-    const detail = item.detail ? ` - ${item.detail}` : "";
+    const detail = item.detail === undefined ? "" : ` - ${renderEvidenceDetailPreview(item.detail)}`;
     lines.push(`- [${item.kind}] ${item.title}${location}${detail}`);
   }
   return lines;
+}
+
+function renderEvidenceDetailPreview(detail: string): string {
+  const normalized = detail.replace(/\r\n/g, "\n").trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  const detailLines = normalized.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+  if (detailLines.length === 0) {
+    return "";
+  }
+
+  const firstLine = detailLines[0];
+  if (detailLines.length === 1 && firstLine !== undefined && firstLine.length <= maxEvidenceDetailChars) {
+    return firstLine;
+  }
+
+  const previewLines = detailLines.slice(0, maxEvidenceDetailLines);
+  const preview = previewLines.join(" | ");
+  if (preview.length <= maxEvidenceDetailChars && detailLines.length <= maxEvidenceDetailLines) {
+    return preview;
+  }
+
+  return `${preview.slice(0, maxEvidenceDetailChars)}… (${detailLines.length} lines, trimmed)`;
 }
 
 export function renderLogEntryMarkdown(entry: LogEntry): string {

@@ -220,6 +220,7 @@ test("loadWorkflowDefinitionFromWorkspace supports markdown workflow folders", a
 
   assert.equal(waiting.status, "waiting_approval");
   assert.equal(waiting.state.currentStep, "Intake");
+  assert.equal(waiting.state.blocked, true);
 
   const completed = await runWorkflowStep({
     workflow,

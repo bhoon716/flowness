@@ -1,120 +1,88 @@
 # Flowness
 
-<div align="center">
-  <img src="https://img.shields.io/badge/status-active-brightgreen?style=flat-square" alt="Status" />
-  <img src="https://img.shields.io/npm/v/@flowness-labs/cli?color=369eff&labelColor=black&logo=npm&style=flat-square" alt="NPM Version" />
-  <img src="https://img.shields.io/github/license/bhoon716/flowness?style=flat-square&color=white&labelColor=black" alt="License" />
-</div>
+Flowness is an issue-driven AI development operating system. It turns requests into tracked issues, runs them through explicit workflows, and records evidence in append-only logs.
 
-<p align="center">
-  <strong>Issue-driven AI Development Operating System.</strong>
-</p>
+## What It Does
 
----
+- Converts requests into structured issues.
+- Guides agents through workflow steps instead of ad hoc edits.
+- Stores navigation, command, and context shortcuts under `.flowness/`.
+- Keeps evidence, logs, and review output compact and traceable.
 
-## What is Flowness?
-
-Most AI coding environments suffer from severe limitations: AI actions are untraceable, workflows are ignored, and decisions vanish without a trace. **Flowness** changes this. Flowness is not just an AI code generation tool; it is an **operating system** that enforces software development workflows and guidelines on AI agents.
-
-Every request becomes a formal **Issue**, and every step produces immutable **Evidence** under an append-only log model.
-
----
-
-## Core Philosophy
-
-- 🎯 **Every Request is an Issue**: Requests automatically transition into structured issues.
-- 📜 **Append-Only Logs**: All agent actions are recorded chronologically and can never be mutated.
-- ⚙️ **Mandatory Workflows**: Agents operate strictly within user-defined/system-enforced execution paths.
-- 🔍 **Evidence Over Claims**: "Test succeeded" is not enough. Agents must provide verification payloads.
-- 🧠 **Preserved Decisions**: Design decisions (e.g., architectural choices) are archived in structured RFC-style templates.
-
----
-
-## Project Structure
-
-Flowness is a Monorepo workspace divided into modular packages:
-
-- [`@flowness-labs/cli`](file:///Users/bhoon/Project/flowness/packages/cli): CLI entry points and orchestration.
-- [`@flowness-labs/core`](file:///Users/bhoon/Project/flowness/packages/core): Common types, configuration parser, and initialization scaffolding.
-- [`@flowness-labs/workflow-engine`](file:///Users/bhoon/Project/flowness/packages/workflow-engine): Code-based, deterministic workflow orchestrator.
-- [`@flowness-labs/issue-system`](file:///Users/bhoon/Project/flowness/packages/issue-system): Issue selection and states.
-- [`@flowness-labs/log-system`](file:///Users/bhoon/Project/flowness/packages/log-system): Append-only logger.
-- [`@flowness-labs/decision-system`](file:///Users/bhoon/Project/flowness/packages/decision-system): Decisison artifact builder.
-- [`@flowness-labs/evidence-system`](file:///Users/bhoon/Project/flowness/packages/evidence-system): Executed tool validation parser.
-- [`@flowness-labs/review-system`](file:///Users/bhoon/Project/flowness/packages/review-system): Multi-agent reviewer aggregator.
-- [`@flowness-labs/config-system`](file:///Users/bhoon/Project/flowness/packages/config-system): Project-wide settings and overrides.
-- [`@flowness-labs/templates`](file:///Users/bhoon/Project/flowness/packages/templates): Scaffolding templates for local projects.
-
----
-
-## Installation & Getting Started
-
-Install the CLI globally from npm:
+## Install
 
 ```bash
 npm install -g @flowness-labs/cli
 ```
 
-Or initialize a new Flowness-governed project using `npx`:
+Or start a new workspace with `npx`:
 
 ```bash
-npx @flowness-labs/cli init ./my-new-project
+npx @flowness-labs/cli init ./my-project
 ```
 
-### Development Setup
-
-To build and test the monorepo locally:
+## Quick Start
 
 ```bash
-# Install dependencies
-npm install
-
-# Build all workspace packages
-npm run build
-
-# Run unit and integration tests
-npm run test
-
-# Symlink CLI for local CLI usage
-npm run link:cli
+flowness init ./my-project
+cd ./my-project
+flowness run "Add user authentication"
+flowness status --issue ISSUE-001-AUTH
 ```
 
----
+After initialization, read these files first:
 
-## Key CLI Commands
+- `.flowness/navigation.md`
+- `.flowness/context-index.json`
+- `.flowness/commands.json`
 
-Once initialized, use the following commands to drive agent tasks:
+## Core Commands
 
-```bash
-# Request a feature or change
-flowness request:create "Implement user authentication"
+- `flowness init`
+- `flowness run`
+- `flowness request:create`
+- `flowness issue:create`
+- `flowness step`
+- `flowness workflow:step`
+- `flowness status`
+- `flowness review:run`
+- `flowness locate`
+- `flowness test --summary`
+- `flowness audit --changed`
+- `flowness upgrade --dry-run`
+- `flowness upgrade --apply`
+- `flowness validate`
 
-# Manually register an issue
-flowness issue:create --title "Integrate Redis caching" --type feature
+## Lightweight Navigation
 
-# Run a step on a workflow
-flowness workflow:step --issue ISSUE-001-SIGNIN --approve
+Flowness keeps the working set small by writing compact navigation artifacts during `init`.
 
-# Execute a multi-agent code review
-flowness review:run --issue ISSUE-001-SIGNIN
-```
+- Read `.flowness/navigation.md` before scanning the workspace.
+- Use `.flowness/context-index.json` to find the smallest useful file set.
+- Use `.flowness/commands.json` for exact command strings.
+- Prefer `flowness locate "<task description>"` over broad repo scans.
 
----
+## Safety Model
 
-## Architecture Layout
+- Workflow state is managed by Flowness commands, not by manual file edits.
+- Logs are append-only.
+- Review requests stay in the review workflow instead of becoming feature work.
+- Use `flowness upgrade --dry-run` before `flowness upgrade --apply` on existing projects.
 
-```
-.agent/                  ← Local project's AI OS directory
-├── config/              ← Configuration rules
-├── issues/              ← Working issues & design decisions
-├── logs/                ← Append-only logs
-├── workflows/           ← Executable workflows
-├── rules/               ← System rules
-└── templates/           ← Document templates
-```
+## Upgrade Existing Projects
 
----
+- Use `flowness init` for a new project.
+- Use `flowness upgrade` for an existing `.flowness/` project that needs regenerated docs or workspace updates.
+- `--dry-run` shows the planned regeneration and conflict handling.
+- `--apply` performs the update after you review the dry-run output.
 
-## License
+## Release Documentation
 
-This project is licensed under the MIT License.
+- GitHub README: this file
+- npm README / full command reference for the CLI package: `packages/cli/README.md`
+- Changelog: `CHANGELOG.md`
+- Release checklist: `docs/release-checklist.md`
+- Release notes template: `docs/templates/release-notes.md`
+- Versioned release notes: `docs/releases/`
+- Run `npm run release:check` before cutting a release.
+- Run `npm run release:docs-check` when you only need documentation validation.

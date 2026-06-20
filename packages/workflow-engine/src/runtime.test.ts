@@ -70,6 +70,7 @@ test("runWorkflowStep handles human gates, transitions, and failure recovery", a
   });
   assert.equal(waiting.status, "waiting_approval");
   assert.equal(waiting.state.currentStep, "Clarify");
+  assert.equal(waiting.state.blocked, true);
 
   const completed = await runWorkflowStep({
     workflow,

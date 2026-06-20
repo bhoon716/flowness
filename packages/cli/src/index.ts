@@ -1,9 +1,11 @@
+import { spawnSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   analyzeRequest,
   type ClarificationQuestion,
   applyHumanGateInstruction,
+  appendTextFile,
   ensureDirectory,
   joinPaths,
   pathExists,
@@ -17,11 +19,26 @@ import {
   resolveWorkflowScaffoldPaths,
   isLikelyNaturalLanguageRequest,
   slugify,
+  buildContextIndex,
+  locateContextIndexArea,
+  renderGeneratedConfigArtifacts,
+  renderGeneratedHarnessManifestArtifact,
+  renderGeneratedNavigationArtifacts,
+  renderGeneratedPlanningDocArtifacts,
+  renderProjectAnalysis,
+  sha256Hex,
+  type ActiveIssueNavigationContext,
+  type ContextIndex,
+  type ContextIndexArea,
+  type LocateContextResult,
+  type ProjectAnalysis,
   type EvidenceRecord,
   type EvidenceKind,
   type IssueRecord,
   type IssuePlan,
   type RequestAnalysis,
+  type TestRunSummary,
+  summarizeTestRunOutput,
   toUpperSnake,
   writeTextFile,
   writeProjectConfig,
@@ -67,6 +84,7 @@ import {
   validateBuiltinWorkflowDefinitions,
   createWorkflowStepContext,
 } from "@flowness-labs/workflow-engine";
+import { runUpgradeCommand } from "./upgrade.js";
 
 export interface CliResult {
   readonly exitCode: 0 | 1;
@@ -133,6 +151,21 @@ export interface ParsedStatusCommand {
   readonly issueId: string;
 }
 
+export interface ParsedLocateCommand {
+  readonly kind: "locate";
+  readonly query: string;
+}
+
+export interface ParsedTestCommand {
+  readonly kind: "test";
+  readonly summary: boolean;
+}
+
+export interface ParsedAuditCommand {
+  readonly kind: "audit";
+  readonly scope: "changed" | "full";
+}
+
 export interface ParsedEvidenceAddCommand {
   readonly kind: "evidence:add";
   readonly issueId: string;
@@ -185,6 +218,13 @@ export interface ParsedRuleApplyCommand {
   readonly input?: string;
 }
 
+export interface ParsedRuleUpdateCommand {
+  readonly kind: "rule:update";
+  readonly ruleId: string;
+  readonly input: string;
+  readonly issueId?: string;
+}
+
 export interface ParsedRuleListCommand {
   readonly kind: "rule:list";
 }
@@ -195,6 +235,9 @@ export interface ParsedValidateCommand {
 
 export interface ParsedUpgradeCommand {
   readonly kind: "upgrade";
+  readonly mode: "dry-run" | "apply";
+  readonly fromVersion: string | null;
+  readonly toVersion: string | null;
 }
 
 export interface ParsedConfigGateCommand {
@@ -221,6 +264,9 @@ export type ParsedCommand =
   | ParsedWorkflowStepCommand
   | ParsedWorkflowRecoverCommand
   | ParsedStatusCommand
+  | ParsedLocateCommand
+  | ParsedTestCommand
+  | ParsedAuditCommand
   | ParsedEvidenceAddCommand
   | ParsedDecisionCreateCommand
   | ParsedReviewRunCommand
@@ -228,6 +274,7 @@ export type ParsedCommand =
   | ParsedSkillListCommand
   | ParsedRuleCreateCommand
   | ParsedRuleApplyCommand
+  | ParsedRuleUpdateCommand
   | ParsedRuleListCommand
   | ParsedValidateCommand
   | ParsedUpgradeCommand
@@ -882,6 +929,59 @@ function parseStatusCommand(rest: readonly string[]): ParsedStatusCommand {
   return {
     kind: "status",
     issueId,
+  };
+}
+
+function parseLocateCommand(rest: readonly string[]): ParsedLocateCommand {
+  const query = rest.join(" ").trim();
+  if (query.length === 0) {
+    throw new Error("Locate query is required.");
+  }
+
+  return {
+    kind: "locate",
+    query,
+  };
+}
+
+function parseTestCommand(rest: readonly string[]): ParsedTestCommand {
+  let summary = true;
+
+  for (const token of rest) {
+    if (token === "--summary" || token === "-s") {
+      summary = true;
+      continue;
+    }
+
+    throw new Error(`Unexpected extra arguments: ${token}`);
+  }
+
+  return {
+    kind: "test",
+    summary,
+  };
+}
+
+function parseAuditCommand(rest: readonly string[]): ParsedAuditCommand {
+  let scope: "changed" | "full" = "changed";
+
+  for (const token of rest) {
+    if (token === "--changed") {
+      scope = "changed";
+      continue;
+    }
+
+    if (token === "--full") {
+      scope = "full";
+      continue;
+    }
+
+    throw new Error(`Unexpected extra arguments: ${token}`);
+  }
+
+  return {
+    kind: "audit",
+    scope,
   };
 }
 
@@ -1544,6 +1644,90 @@ function parseRuleApplyCommand(rest: readonly string[]): ParsedRuleApplyCommand 
   };
 }
 
+function parseRuleUpdateCommand(rest: readonly string[]): ParsedRuleUpdateCommand {
+  let ruleId: string | undefined;
+  let issueId: string | undefined;
+  let input: string | undefined;
+  const positional: string[] = [];
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (token === undefined) {
+      continue;
+    }
+
+    if (token === "--id") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --id.");
+      }
+      ruleId = slugify(next);
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--id=")) {
+      ruleId = slugify(token.slice("--id=".length));
+      continue;
+    }
+
+    if (token === "--issue") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --issue.");
+      }
+      issueId = normalizeIssueId(next);
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--issue=")) {
+      issueId = normalizeIssueId(token.slice("--issue=".length));
+      continue;
+    }
+
+    if (token === "--input") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error("Missing value for --input.");
+      }
+      input = next;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--input=")) {
+      input = token.slice("--input=".length);
+      continue;
+    }
+
+    positional.push(token);
+  }
+
+  if (ruleId === undefined && positional.length > 0) {
+    ruleId = slugify(positional.shift() ?? "");
+  }
+
+  if (input === undefined && positional.length > 0) {
+    input = positional.join(" ");
+  }
+
+  if (ruleId === undefined || ruleId.length === 0) {
+    throw new Error("Rule id is required.");
+  }
+
+  if (input === undefined || input.trim().length === 0) {
+    throw new Error("Rule update input is required.");
+  }
+
+  return {
+    kind: "rule:update",
+    ruleId,
+    input,
+    ...(issueId === undefined ? {} : { issueId }),
+  };
+}
+
 function parseRuleListCommand(rest: readonly string[]): ParsedRuleListCommand {
   if (rest.length > 0) {
     throw new Error(`Unexpected extra arguments: ${rest.join(" ")}`);
@@ -1561,11 +1745,64 @@ function parseValidateCommand(rest: readonly string[]): ParsedValidateCommand {
 }
 
 function parseUpgradeCommand(rest: readonly string[]): ParsedUpgradeCommand {
-  if (rest.length > 0) {
-    throw new Error(`Unexpected extra arguments: ${rest.join(" ")}`);
+  let mode: "dry-run" | "apply" = "dry-run";
+  let seenModeFlag: "dry-run" | "apply" | null = null;
+  let fromVersion: string | null = null;
+  let toVersion: string | null = null;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (token === undefined) {
+      continue;
+    }
+
+    if (token === "--dry-run" || token === "--apply") {
+      const requestedMode = token === "--apply" ? "apply" : "dry-run";
+      if (seenModeFlag !== null && seenModeFlag !== requestedMode) {
+        throw new Error("Use only one of --dry-run or --apply.");
+      }
+      mode = requestedMode;
+      seenModeFlag = requestedMode;
+      continue;
+    }
+
+    if (token === "--from" || token.startsWith("--from=")) {
+      const value = token.includes("=")
+        ? token.slice("--from=".length)
+        : rest[index + 1];
+      if (value === undefined || value.length === 0 || isOptionToken(value)) {
+        throw new Error("Missing value for --from.");
+      }
+      fromVersion = value;
+      if (!token.includes("=")) {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (token === "--to" || token.startsWith("--to=")) {
+      const value = token.includes("=")
+        ? token.slice("--to=".length)
+        : rest[index + 1];
+      if (value === undefined || value.length === 0 || isOptionToken(value)) {
+        throw new Error("Missing value for --to.");
+      }
+      toVersion = value;
+      if (!token.includes("=")) {
+        index += 1;
+      }
+      continue;
+    }
+
+    throw new Error(`Unexpected argument: ${token}`);
   }
 
-  return { kind: "upgrade" };
+  return {
+    kind: "upgrade",
+    mode,
+    fromVersion,
+    toVersion,
+  };
 }
 
 function parseConfigGateCommand(rest: readonly string[]): ParsedConfigGateCommand {
@@ -1643,6 +1880,12 @@ export function parseCommand(argv: readonly string[]): ParsedCommand {
       return parseWorkflowRecoverCommand(rest);
     case "status":
       return parseStatusCommand(rest);
+    case "locate":
+      return parseLocateCommand(rest);
+    case "test":
+      return parseTestCommand(rest);
+    case "audit":
+      return parseAuditCommand(rest);
     case "evidence:add":
       return parseEvidenceAddCommand(rest);
     case "decision:create":
@@ -1657,6 +1900,8 @@ export function parseCommand(argv: readonly string[]): ParsedCommand {
       return parseRuleCreateCommand(rest);
     case "rule:apply":
       return parseRuleApplyCommand(rest);
+    case "rule:update":
+      return parseRuleUpdateCommand(rest);
     case "rule:list":
       return parseRuleListCommand(rest);
     case "validate":
@@ -1882,11 +2127,25 @@ function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
   const lines = [
     `Request: ${analysis.request}`,
     `Category: ${analysis.category}`,
+    `Intent: ${analysis.intent}`,
+    `Execution mode: ${analysis.executionMode}`,
+    `Issue count: ${analysis.issueCount}`,
+    `Confidence: ${analysis.confidence.toFixed(2)}`,
+    `Safe to proceed: ${analysis.safeToProceed ? "yes" : "no"}`,
+    `Next action: ${analysis.nextAction}`,
+    `Requires issue: ${analysis.requiresIssue ? "yes" : "no"}`,
     `Reason: ${analysis.reason}`,
     `Workflow: ${analysis.workflowId ?? "none"}`,
     `Issue type: ${analysis.issueType ?? "none"}`,
     `Clarification required: ${analysis.needsClarification ? "yes" : "no"}`,
   ];
+
+  if (analysis.reviewTarget !== undefined) {
+    const reviewTargetFiles = analysis.reviewTarget.files.length === 0 ? "" : ` (${analysis.reviewTarget.files.join(", ")})`;
+    lines.push(`Review target: ${analysis.reviewTarget.label}${reviewTargetFiles}`);
+  } else if (analysis.category === "review_task") {
+    lines.push("Review target: needs clarification.");
+  }
 
   if (analysis.clarificationQuestions.length > 0) {
     lines.push("");
@@ -1974,11 +2233,28 @@ function formatRequestCreateSummary(input: {
   const lines = [
     `Flowness analyzed this as ${formatRequestCategoryLabel(input.analysis.category)}.`,
     `${input.reused ? "Reused existing issue" : "Created issue"} ${input.issue.id} and routed it to ${input.issue.workflowId}.`,
+    `Execution mode: ${input.analysis.executionMode}`,
+    `Issue count: ${input.analysis.issueCount}`,
+    `Confidence: ${input.analysis.confidence.toFixed(2)}`,
+    `Safe to proceed: ${input.analysis.safeToProceed ? "yes" : "no"}`,
+    `Next action: ${input.analysis.nextAction}`,
     `Workflow: ${input.issue.workflowId}`,
     `Type: ${input.issue.type}`,
     `Log: ${input.issue.logPath}`,
-    "Start with 01-intake.md / clarification before implementation.",
   ];
+
+  lines.push(
+    input.analysis.category === "review_task"
+      ? "Start with 01-intake.md / clarification before review."
+      : "Start with 01-intake.md / clarification before implementation.",
+  );
+
+  if (input.analysis.reviewTarget !== undefined) {
+    const reviewTargetFiles = input.analysis.reviewTarget.files.length === 0 ? "" : ` (${input.analysis.reviewTarget.files.join(", ")})`;
+    lines.push(`Review target: ${input.analysis.reviewTarget.label}${reviewTargetFiles}`);
+  } else if (input.analysis.category === "review_task") {
+    lines.push("Review target: needs clarification.");
+  }
 
   if (input.issue.parentIssueId !== undefined && input.issue.parentIssueId !== null) {
     lines.push(`Parent: ${input.issue.parentIssueId}`);
@@ -1999,9 +2275,17 @@ function formatQuestionOrCasualSummary(analysis: RequestAnalysis): string {
   const lines = [
     "No issue created.",
     `Category: ${analysis.category}`,
+    `Intent: ${analysis.intent}`,
+    `Execution mode: ${analysis.executionMode}`,
+    `Issue count: ${analysis.issueCount}`,
+    `Confidence: ${analysis.confidence.toFixed(2)}`,
+    `Safe to proceed: ${analysis.safeToProceed ? "yes" : "no"}`,
+    `Next action: ${analysis.nextAction}`,
     `Reason: ${analysis.reason}`,
     `Request: ${analysis.request}`,
-    "Normal response can continue.",
+    analysis.executionMode === "answer"
+      ? "Normal response can continue."
+      : "Clarification is required before implementation can continue.",
   ];
 
   if (analysis.clarificationQuestions.length > 0) {
@@ -2077,16 +2361,385 @@ function formatRuleSummary(ruleId: string, title: string, filePath: string, crea
   ].join("\n");
 }
 
-function formatWorkflowStepSummary(
-  issueId: string,
-  status: string,
-  nextStep: string | null,
-  logPath: string,
-): string {
+function formatRuleUpdateSummary(input: {
+  readonly ruleId: string;
+  readonly filePath: string;
+  readonly logPath: string | null;
+  readonly changeLogPath: string;
+  readonly action: "created" | "updated";
+}): string {
   return [
-    `Workflow step ${status} for ${issueId}.`,
-    `Next step: ${nextStep ?? "complete"}`,
-    `Log: ${logPath}`,
+    `${input.action === "created" ? "Created" : "Updated"} rule ${input.ruleId}.`,
+    `Path: ${input.filePath}`,
+    input.logPath === null ? null : `Issue log: ${input.logPath}`,
+    `Change log: ${input.changeLogPath}`,
+  ].filter((line): line is string => line !== null).join("\n");
+}
+
+function formatWorkflowStepSummary(input: {
+  readonly issueId: string;
+  readonly stepName: string;
+  readonly status: "completed" | "blocked" | "waiting_approval";
+  readonly issueState: string;
+  readonly gateStatus: string;
+  readonly actions: readonly string[];
+  readonly evidence: readonly EvidenceRecord[];
+  readonly nextStep: string | null;
+  readonly nextStepFile: string | null;
+  readonly logPath: string;
+}): string {
+  const evidenceLines = input.evidence.length === 0
+    ? ["- None"]
+    : input.evidence.map((item) => {
+        const location = item.location === undefined ? "" : ` (${item.location})`;
+        const detail = item.detail === undefined ? "" : ` - ${item.detail}`;
+        return `- ${item.title}${location}${detail}`;
+      });
+
+  return [
+    `Issue: ${input.issueId}`,
+    `Completed step: ${input.stepName}`,
+    `Status: ${input.status}`,
+    input.status === "waiting_approval"
+      ? "Current issue state: blocked"
+      : `Current issue state: ${input.issueState}`,
+    `What was done:`,
+    ...input.actions.map((action) => `- ${action}`),
+    `Evidence created:`,
+    ...evidenceLines,
+    `Gate/review: ${input.gateStatus}`,
+    `Next step: ${input.nextStep ?? "complete"}`,
+    `Next step file: ${input.nextStepFile ?? "none"}`,
+    `Log: ${input.logPath}`,
+  ].join("\n");
+}
+
+function humanizeRuleId(ruleId: string): string {
+  const leaf = ruleId.split("/").filter((segment) => segment.length > 0).at(-1) ?? ruleId;
+  return leaf
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function deriveRelevantRuleFilesForAnalysis(analysis: ProjectAnalysis): readonly string[] {
+  const files = new Set<string>();
+
+  switch (analysis.language) {
+    case "Java":
+      files.add(".flowness/rules/tech/java.md");
+      break;
+    case "Python":
+      files.add(".flowness/rules/tech/python.md");
+      break;
+    case "JavaScript":
+      files.add(".flowness/rules/tech/javascript.md");
+      break;
+    case "TypeScript":
+      files.add(".flowness/rules/tech/typescript.md");
+      files.add(".flowness/rules/tech/javascript.md");
+      break;
+  }
+
+  switch (analysis.framework) {
+    case "React":
+      files.add(".flowness/rules/tech/react.md");
+      break;
+    case "Next.js":
+      files.add(".flowness/rules/tech/nextjs.md");
+      files.add(".flowness/rules/tech/react.md");
+      break;
+    case "NestJS":
+      files.add(".flowness/rules/tech/nestjs.md");
+      break;
+    case "Spring":
+      files.add(".flowness/rules/tech/spring.md");
+      break;
+    case "Django":
+      files.add(".flowness/rules/tech/django.md");
+      break;
+  }
+
+  return [...files].sort();
+}
+
+async function loadWorkflowStepMetadataMap(
+  rootDir: string,
+  workflowId: string,
+): Promise<Map<string, { readonly fileName: string; readonly nextStep: string | null }>> {
+  const workflowDir = join(rootDir, ".flowness", "workflows", workflowId);
+  const metadata = new Map<string, { readonly fileName: string; readonly nextStep: string | null }>();
+
+  if (!(await pathExists(workflowDir))) {
+    return metadata;
+  }
+
+  const entries = await readdir(workflowDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md") || entry.name === "README.md") {
+      continue;
+    }
+
+    const content = await readTextFile(join(workflowDir, entry.name));
+    const nameMatch = content.match(/^name:\s*(.+)$/m);
+    if (nameMatch?.[1] === undefined) {
+      continue;
+    }
+
+    const nextMatch = content.match(/^next:\s*(.+)$/m);
+    const rawNext = nextMatch?.[1]?.trim() ?? "";
+    metadata.set(nameMatch[1].trim(), {
+      fileName: entry.name,
+      nextStep: rawNext.length === 0 || rawNext.toLowerCase() === "none" ? null : rawNext,
+    });
+  }
+
+  return metadata;
+}
+
+function extractEvidenceFilePaths(evidenceRecords: readonly EvidenceRecord[]): string[] {
+  const paths: string[] = [];
+  for (const record of evidenceRecords) {
+    if (record.location !== undefined) {
+      paths.push(record.location);
+    }
+  }
+
+  return paths;
+}
+
+function normalizeEvidenceFilePaths(evidenceFiles: readonly string[] | readonly EvidenceRecord[]): string[] {
+  if (evidenceFiles.length === 0) {
+    return [];
+  }
+
+  const first = evidenceFiles[0];
+  if (typeof first === "string") {
+    return [...(evidenceFiles as readonly string[])];
+  }
+
+  return extractEvidenceFilePaths(evidenceFiles as readonly EvidenceRecord[]);
+}
+
+async function buildActiveIssueNavigationContext(input: {
+  readonly rootDir: string;
+  readonly analysis: ProjectAnalysis;
+  readonly issue: IssueRecord;
+  readonly workflowState: { readonly currentStep: string; readonly completedSteps: readonly string[] };
+  readonly issuePaths: { readonly issueFile: string; readonly workflowStateFile: string; readonly logFile: string };
+  readonly nextStep: string | null;
+  readonly blocked?: boolean;
+  readonly blockReason?: string | null;
+  readonly pendingStep?: string | null;
+  readonly requiredAction?: string | null;
+  readonly evidenceFiles: readonly string[] | readonly EvidenceRecord[];
+  readonly stepMetadataMap?: Map<string, { readonly fileName: string; readonly nextStep: string | null }>;
+}): Promise<ActiveIssueNavigationContext> {
+  const stepMetadata = input.stepMetadataMap ?? await loadWorkflowStepMetadataMap(input.rootDir, input.issue.workflowId);
+  const currentStepName = input.workflowState.currentStep.length > 0
+    ? input.workflowState.currentStep
+    : input.workflowState.completedSteps.at(-1) ?? "";
+  const currentMetadata = stepMetadata.get(currentStepName) ?? null;
+  const currentStepFile = currentMetadata?.fileName ?? "README.md";
+  const resolvedNextStep = input.nextStep ?? currentMetadata?.nextStep ?? null;
+  const nextMetadata = resolvedNextStep === null ? null : stepMetadata.get(resolvedNextStep) ?? null;
+  const relevantRules = deriveRelevantRuleFilesForAnalysis(input.analysis);
+  const evidenceFiles = normalizeEvidenceFilePaths(input.evidenceFiles);
+  const blocked = input.blocked ?? input.issue.state === "blocked";
+  const pendingStep = input.pendingStep ?? (blocked ? currentStepName : resolvedNextStep);
+
+  return {
+    issueId: input.issue.id,
+    issueTitle: input.issue.title,
+    issueState: input.issue.state,
+    workflowId: input.issue.workflowId,
+    currentStep: currentStepName.length === 0 ? "complete" : currentStepName,
+    nextStep: resolvedNextStep,
+    blocked,
+    blockReason: input.blockReason ?? null,
+    pendingStep,
+    requiredAction: input.requiredAction ?? null,
+    issueFile: input.issuePaths.issueFile,
+    workflowStateFile: input.issuePaths.workflowStateFile,
+    issueLogFile: input.issuePaths.logFile,
+    currentStepFile,
+    nextStepFile: nextMetadata?.fileName ?? null,
+    evidenceFiles,
+    relevantRules,
+  };
+}
+
+async function refreshWorkspaceArtifacts(
+  rootDir: string,
+  activeIssue: ActiveIssueNavigationContext | null,
+): Promise<void> {
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
+  const configArtifacts = await renderGeneratedConfigArtifacts(analysis, activeIssue, rootDir);
+  const navigationArtifacts = renderGeneratedNavigationArtifacts(analysis, activeIssue);
+  const generatedFileHashes = Object.fromEntries([
+    ...configArtifacts,
+    ...navigationArtifacts,
+  ].map((artifact) => [artifact.path, sha256Hex(artifact.content)] as const));
+  const manifestArtifact = renderGeneratedHarnessManifestArtifact(analysis, activeIssue, generatedFileHashes);
+
+  for (const artifact of [
+    ...configArtifacts,
+    ...navigationArtifacts,
+    manifestArtifact,
+  ]) {
+    await writeTextFile(join(rootDir, artifact.path), artifact.content, true);
+  }
+}
+
+async function refreshIssueNavigationArtifacts(input: {
+  readonly rootDir: string;
+  readonly analysis: ProjectAnalysis;
+  readonly issue: IssueRecord;
+  readonly workflowState: { readonly currentStep: string; readonly completedSteps: readonly string[] };
+  readonly nextStep?: string | null;
+  readonly blocked?: boolean;
+  readonly blockReason?: string | null;
+  readonly pendingStep?: string | null;
+  readonly requiredAction?: string | null;
+  readonly evidenceFiles?: readonly string[] | readonly EvidenceRecord[];
+  readonly issuePaths?: { readonly issueFile: string; readonly workflowStateFile: string; readonly logFile: string };
+  readonly stepMetadataMap?: Map<string, { readonly fileName: string; readonly nextStep: string | null }>;
+}): Promise<void> {
+  const issuePaths = input.issuePaths ?? resolveIssuePaths(input.rootDir, input.issue.id);
+  const evidenceFiles = input.evidenceFiles === undefined
+    ? extractEvidenceFilePaths(await collectIssueEvidence(input.rootDir, input.issue.id))
+    : normalizeEvidenceFilePaths(input.evidenceFiles);
+  const activeIssue = await buildActiveIssueNavigationContext({
+    rootDir: input.rootDir,
+    analysis: input.analysis,
+    issue: input.issue,
+    workflowState: input.workflowState,
+    issuePaths,
+    nextStep: input.nextStep ?? (input.workflowState.currentStep.length === 0 ? null : input.workflowState.currentStep),
+    ...(input.blocked === undefined ? {} : { blocked: input.blocked }),
+    ...(input.blockReason === undefined ? {} : { blockReason: input.blockReason }),
+    ...(input.pendingStep === undefined ? {} : { pendingStep: input.pendingStep }),
+    ...(input.requiredAction === undefined ? {} : { requiredAction: input.requiredAction }),
+    evidenceFiles,
+    ...(input.stepMetadataMap === undefined ? {} : { stepMetadataMap: input.stepMetadataMap }),
+  });
+  await refreshWorkspaceArtifacts(input.rootDir, activeIssue);
+}
+
+async function ensurePlanningDocs(rootDir: string, analysis: ProjectAnalysis): Promise<{
+  readonly createdFiles: readonly string[];
+  readonly skippedFiles: readonly string[];
+  readonly evidence: readonly EvidenceRecord[];
+}> {
+  const createdFiles: string[] = [];
+  const skippedFiles: string[] = [];
+  const evidence: EvidenceRecord[] = [];
+
+  for (const artifact of renderGeneratedPlanningDocArtifacts(analysis)) {
+    const writeResult = await writeTextFile(join(rootDir, artifact.path), artifact.content, false);
+    if (writeResult === "written") {
+      createdFiles.push(artifact.path);
+      evidence.push(createEvidenceRecord({
+        kind: "file",
+        title: artifact.path,
+        location: join(rootDir, artifact.path),
+      }));
+    } else {
+      skippedFiles.push(artifact.path);
+    }
+  }
+
+  return {
+    createdFiles,
+    skippedFiles,
+    evidence,
+  };
+}
+
+function detectNaturalLanguageRuleUpdate(request: string): { readonly ruleId: string; readonly input: string } | null {
+  const trimmed = request.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const normalized = trimmed.toLowerCase();
+
+  if (/react\b|jsx\b|feature[-\s]?based\b|feature slice\b|feature[-\s]?first\b/.test(normalized)) {
+    return { ruleId: "tech/react", input: trimmed };
+  }
+
+  if (/next\.?js\b|app router\b|server component\b|server action\b/.test(normalized)) {
+    return { ruleId: "tech/nextjs", input: trimmed };
+  }
+
+  if (/nestjs\b|controller\b.*\bprovider\b|provider\b.*\bcontroller\b/.test(normalized)) {
+    return { ruleId: "tech/nestjs", input: trimmed };
+  }
+
+  if (/spring\b|controller\b.*\bservice\b|service\b.*\brepository\b|layered architecture\b/.test(normalized)) {
+    return { ruleId: "tech/spring", input: trimmed };
+  }
+
+  if (/django\b|orm\b|model\b.*\bview\b.*\btemplate\b/.test(normalized)) {
+    return { ruleId: "tech/django", input: trimmed };
+  }
+
+  if (/typescript\b|strict typing\b|type safety\b/.test(normalized)) {
+    return { ruleId: "tech/typescript", input: trimmed };
+  }
+
+  if (/javascript\b|es modules?\b|async\/await\b/.test(normalized)) {
+    return { ruleId: "tech/javascript", input: trimmed };
+  }
+
+  if (/python\b|pep 8\b|pytest\b|pathlib\b/.test(normalized)) {
+    return { ruleId: "tech/python", input: trimmed };
+  }
+
+  if (/java\b|record\b|package structure\b|final\b/.test(normalized)) {
+    return { ruleId: "tech/java", input: trimmed };
+  }
+
+  if (/integration tests? first\b|tests? first\b|test strategy\b|security first\b|architecture\b|layered architecture\b|feature[-\s]?based\b|non[-\s]?goal\b|앞으로\b|항상\b|규칙\b/.test(normalized)) {
+    return { ruleId: "project-overrides", input: trimmed };
+  }
+
+  return null;
+}
+
+function renderRuleUpdateBlock(input: {
+  readonly ruleId: string;
+  readonly instruction: string;
+  readonly timestamp: string;
+}): string {
+  return [
+    "",
+    `## Update ${input.timestamp}`,
+    "",
+    `- Source instruction: ${input.instruction}`,
+    `- Rule: ${input.ruleId}`,
+    `- Guidance: ${input.instruction}`,
+    "",
+  ].join("\n");
+}
+
+function renderRuleChangeLogEntry(input: {
+  readonly ruleId: string;
+  readonly instruction: string;
+  readonly timestamp: string;
+  readonly source: string;
+}): string {
+  return [
+    "",
+    `## ${input.timestamp}`,
+    "",
+    `- Source: ${input.source}`,
+    `- Target rule: ${input.ruleId}`,
+    `- Instruction: ${input.instruction}`,
+    "",
   ].join("\n");
 }
 
@@ -2109,6 +2762,9 @@ function formatStatusSummary(input: {
   readonly currentStep: string;
   readonly completedSteps: readonly string[];
   readonly blocked: boolean;
+  readonly blockReason: string | null;
+  readonly pendingStep: string | null;
+  readonly requiredAction: string | null;
   readonly latestLogStep: string | null;
   readonly evidenceCount: number;
   readonly logPath: string;
@@ -2120,6 +2776,13 @@ function formatStatusSummary(input: {
     `Current step: ${input.currentStep.length === 0 ? "complete" : input.currentStep}`,
     `Completed steps: ${input.completedSteps.length === 0 ? "none" : input.completedSteps.join(", ")}`,
     `Blocked: ${input.blocked ? "yes" : "no"}`,
+    ...(input.blocked
+      ? [
+          `Block reason: ${input.blockReason ?? "blocked"}`,
+          `Pending step: ${input.pendingStep ?? input.currentStep}`,
+          `Required action: ${input.requiredAction ?? "Resolve the block before continuing."}`,
+        ]
+      : []),
     `Latest log step: ${input.latestLogStep ?? "none"}`,
     `Evidence items: ${input.evidenceCount}`,
     `Log: ${input.logPath}`,
@@ -2147,14 +2810,49 @@ async function persistWorkflowOutcome(input: {
   readonly workflow: Awaited<ReturnType<typeof buildWorkflowDefinition>>;
   readonly stepName: string;
   readonly outcome: Awaited<ReturnType<typeof runWorkflowStep>>;
+  readonly analysis: ProjectAnalysis;
+  readonly stepMetadataMap: Map<string, { readonly fileName: string; readonly nextStep: string | null }>;
 }): Promise<CliResult> {
-  const { rootDir, workspace, workflow, stepName, outcome } = input;
+  const {
+    rootDir,
+    workspace,
+    workflow,
+    stepName,
+    outcome,
+    analysis,
+    stepMetadataMap,
+  } = input;
+  const issuePaths = workspace.issuePaths;
+  const currentStepFile = stepMetadataMap.get(stepName)?.fileName ?? "README.md";
+  const summaryNextStepFile = outcome.nextStep === null
+    ? null
+    : stepMetadataMap.get(outcome.nextStep)?.fileName ?? null;
+  const workflowOutcomeBlockContext = outcome.status === "waiting_approval"
+    ? {
+        blocked: true,
+        blockReason: "waiting_human_approval",
+        pendingStep: stepName,
+        requiredAction: `Approve the ${stepName} gate before continuing.`,
+      }
+    : outcome.status === "blocked"
+      ? {
+          blocked: true,
+          blockReason: "workflow_failure",
+          pendingStep: stepName,
+          requiredAction: outcome.rootCause === undefined
+            ? `Run flowness workflow:recover --issue ${workspace.issue.id} --root-cause "<cause>" before retrying.`
+            : `Run flowness workflow:recover --issue ${workspace.issue.id} --root-cause "${outcome.rootCause}" before retrying.`,
+        }
+      : {
+          blocked: false,
+          blockReason: null,
+          pendingStep: null,
+          requiredAction: null,
+        };
+  let summaryIssueState = workspace.issue.state;
 
   if (outcome.nextStep === null) {
-    const currentEvidence = [
-      ...(await collectIssueEvidence(rootDir, workspace.issue.id)),
-      ...outcome.state.evidence,
-    ];
+    const currentEvidence = [...(await collectIssueEvidence(rootDir, workspace.issue.id)), ...outcome.state.evidence];
 
     const requiresEvidenceReview = workflow.steps.some((step) => step.name === "Evidence Review")
       || workflow.steps.some((step) => step.name === "Implementation");
@@ -2199,14 +2897,37 @@ async function persistWorkflowOutcome(input: {
         });
 
         await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, blockedLogEntry);
-        await writeIssueWorkspaceState(rootDir, workspace.issue, blockedState, workspace.description);
+        const blockedWorkspace = await writeIssueWorkspaceState(rootDir, workspace.issue, blockedState, workspace.description);
+        summaryIssueState = blockedWorkspace.issue.state;
+        await refreshIssueNavigationArtifacts({
+          rootDir,
+          analysis,
+          issue: blockedWorkspace.issue,
+          workflowState: blockedWorkspace.workflowState,
+          issuePaths,
+          nextStep: stepName,
+          blocked: true,
+          blockReason: "missing_evidence_review",
+          pendingStep: stepName,
+          requiredAction: "Record an Evidence Review log entry before retrying close.",
+          evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+          stepMetadataMap,
+        });
 
         return {
           exitCode: 1,
-          output: [
-            `Workflow close blocked for ${workspace.issue.id}.`,
-            message,
-          ].join("\n"),
+          output: formatWorkflowStepSummary({
+            issueId: workspace.issue.id,
+            stepName,
+            status: "blocked",
+            issueState: summaryIssueState,
+            gateStatus: "blocked: Evidence Review missing",
+            actions: blockedLogEntry.actions,
+            evidence: blockedLogEntry.evidence,
+            nextStep: stepName,
+            nextStepFile: currentStepFile,
+            logPath: workspace.issue.logPath,
+          }),
         };
       }
     }
@@ -2266,16 +2987,38 @@ async function persistWorkflowOutcome(input: {
         nextStep: stepName,
       });
 
-      await writeIssueWorkspaceState(rootDir, workspace.issue, blockedState, workspace.description);
       await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, blockedLogEntry);
+      const blockedWorkspace = await writeIssueWorkspaceState(rootDir, workspace.issue, blockedState, workspace.description);
+      summaryIssueState = blockedWorkspace.issue.state;
+      await refreshIssueNavigationArtifacts({
+        rootDir,
+        analysis,
+        issue: blockedWorkspace.issue,
+        workflowState: blockedWorkspace.workflowState,
+        issuePaths,
+        nextStep: stepName,
+        blocked: true,
+        blockReason: "review_gate_blocked",
+        pendingStep: stepName,
+        requiredAction: "Address the blocking review findings before retrying.",
+        evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+        stepMetadataMap,
+      });
 
       return {
         exitCode: 1,
-        output: [
-          `Workflow close blocked for ${workspace.issue.id}.`,
-          `Review summary: ${reviewReport.summary}`,
-          `Blocking roles: ${reviewCoordinator.blockingRoles.length === 0 ? "none" : reviewCoordinator.blockingRoles.join(", ")}`,
-        ].join("\n"),
+        output: formatWorkflowStepSummary({
+          issueId: workspace.issue.id,
+          stepName,
+          status: "blocked",
+          issueState: summaryIssueState,
+          gateStatus: `blocked: ${reviewCoordinator.blockingRoles.length === 0 ? "review failed" : reviewCoordinator.blockingRoles.join(", ")}`,
+          actions: blockedLogEntry.actions,
+          evidence: blockedLogEntry.evidence,
+          nextStep: stepName,
+          nextStepFile: currentStepFile,
+          logPath: workspace.issue.logPath,
+        }),
       };
     }
 
@@ -2296,15 +3039,56 @@ async function persistWorkflowOutcome(input: {
 
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, outcome.logEntry);
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, reviewLogEntry);
-    await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
+    const updatedWorkspace = await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
+    summaryIssueState = updatedWorkspace.issue.state;
+    await refreshIssueNavigationArtifacts({
+      rootDir,
+      analysis,
+      issue: updatedWorkspace.issue,
+      workflowState: updatedWorkspace.workflowState,
+      issuePaths,
+      nextStep: null,
+      ...workflowOutcomeBlockContext,
+      evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+      stepMetadataMap,
+    });
   } else {
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, outcome.logEntry);
-    await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
+    const updatedWorkspace = await writeIssueWorkspaceState(rootDir, workspace.issue, outcome.state, workspace.description);
+    summaryIssueState = updatedWorkspace.issue.state;
+    await refreshIssueNavigationArtifacts({
+      rootDir,
+      analysis,
+      issue: updatedWorkspace.issue,
+      workflowState: updatedWorkspace.workflowState,
+      issuePaths,
+      nextStep: outcome.nextStep,
+      ...workflowOutcomeBlockContext,
+      evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+      stepMetadataMap,
+    });
   }
 
   return {
     exitCode: outcome.status === "completed" ? 0 : 1,
-    output: formatWorkflowStepSummary(workspace.issue.id, outcome.status, outcome.nextStep, workspace.issue.logPath),
+    output: formatWorkflowStepSummary({
+      issueId: workspace.issue.id,
+      stepName,
+      status: outcome.status,
+      issueState: summaryIssueState,
+      gateStatus: outcome.status === "waiting_approval"
+        ? "blocked: waiting_human_approval"
+        : outcome.nextStep === null
+          ? "passed"
+          : outcome.status === "completed"
+            ? "passed"
+            : "blocked",
+      actions: outcome.logEntry.actions,
+      evidence: outcome.logEntry.evidence,
+      nextStep: outcome.nextStep,
+      nextStepFile: summaryNextStepFile,
+      logPath: workspace.issue.logPath,
+    }),
   };
 }
 
@@ -2490,6 +3274,129 @@ function createDecisionEvidenceSummary(evidence: readonly EvidenceRecord[]): str
   return summarizeEvidence(evidence);
 }
 
+function renderJsonOutput(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function detectScriptCommand(packageManager: ProjectAnalysis["packageManager"], scriptName: string): string {
+  switch (packageManager) {
+    case "npm":
+      return scriptName === "test" ? "npm test" : `npm run ${scriptName}`;
+    case "pnpm":
+      return scriptName === "test" ? "pnpm test" : `pnpm ${scriptName}`;
+    case "yarn":
+      return `yarn ${scriptName}`;
+    case "bun":
+      return `bun run ${scriptName}`;
+    case "unknown":
+      return scriptName === "test" ? "npm test" : `npm run ${scriptName}`;
+  }
+}
+
+function isLargeCommandOutput(output: string): boolean {
+  return output.length > 5000 || output.split(/\r?\n/).length > 200;
+}
+
+async function loadContextIndex(rootDir: string, analysis: ProjectAnalysis): Promise<ContextIndex> {
+  const contextIndexPath = resolveWorkspacePaths(rootDir).contextIndexPath;
+  if (await pathExists(contextIndexPath)) {
+    try {
+      const text = await readTextFile(contextIndexPath);
+      const parsed = JSON.parse(text) as { projectName?: unknown; areas?: unknown };
+      if (Array.isArray(parsed.areas)) {
+        return {
+          projectName: typeof parsed.projectName === "string" && parsed.projectName.trim().length > 0
+            ? parsed.projectName
+            : analysis.projectName,
+          areas: parsed.areas as readonly ContextIndexArea[],
+        };
+      }
+    } catch {
+      // Fall back to rebuilding the context index below.
+    }
+  }
+
+  return await buildContextIndex(rootDir, analysis);
+}
+
+function runShellCommand(command: string, cwd: string): {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+} {
+  const result = spawnSync(command, [], {
+    cwd,
+    encoding: "utf8",
+    shell: true,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+
+  if (result.error instanceof Error) {
+    return {
+      exitCode: 1,
+      stdout: result.stdout ?? "",
+      stderr: result.error.message,
+    };
+  }
+
+  return {
+    exitCode: result.status ?? 0,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+function collectGitChangedFiles(rootDir: string): { readonly files: readonly string[]; readonly available: boolean } {
+  const result = spawnSync("git", ["status", "--short", "--untracked-files=all"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+  });
+
+  if (result.error instanceof Error || result.status === 128) {
+    return {
+      files: [],
+      available: false,
+    };
+  }
+
+  const files = new Set<string>();
+  for (const line of (result.stdout ?? "").split(/\r?\n/)) {
+    const trimmed = line.trimEnd();
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    const pathText = trimmed.length > 3 ? trimmed.slice(3).trim() : "";
+    if (pathText.length === 0) {
+      continue;
+    }
+
+    const renamed = pathText.includes(" -> ") ? pathText.split(" -> ").at(-1) ?? pathText : pathText;
+    files.add(renamed.trim());
+  }
+
+  return {
+    files: [...files].sort((left, right) => left.localeCompare(right)),
+    available: true,
+  };
+}
+
+async function storeLargeTestOutput(rootDir: string, output: string): Promise<string | null> {
+  const workspacePaths = resolveWorkspacePaths(rootDir);
+  if (!(await pathExists(workspacePaths.flownessDir))) {
+    return null;
+  }
+
+  const rawDir = joinPaths(rootDir, ".flowness", "logs", "raw");
+  await ensureDirectory(rawDir);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const fileName = `test-${timestamp}.log`;
+  const outputPath = joinPaths(".flowness", "logs", "raw", fileName);
+  await writeTextFile(joinPaths(rawDir, fileName), output, true);
+  return outputPath;
+}
+
 async function runInitCommand(command: ParsedInitCommand): Promise<CliResult> {
   const result = await initializeProject({
     rootDir: join(command.targetPath),
@@ -2511,10 +3418,126 @@ async function runInitCommand(command: ParsedInitCommand): Promise<CliResult> {
   };
 }
 
+async function runLocateCommand(command: ParsedLocateCommand): Promise<CliResult> {
+  const rootDir = process.cwd();
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
+  const contextIndex = await loadContextIndex(rootDir, analysis);
+  const locateResult = locateContextIndexArea(contextIndex, command.query);
+
+  return {
+    exitCode: 0,
+    output: renderJsonOutput({
+      query: command.query,
+      projectName: contextIndex.projectName,
+      ...locateResult,
+    }),
+  };
+}
+
+async function runTestCommand(command: ParsedTestCommand): Promise<CliResult> {
+  const rootDir = process.cwd();
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
+  const testCommand = analysis.testCommand ?? detectScriptCommand(analysis.packageManager, "test");
+  const execution = runShellCommand(testCommand, rootDir);
+  const combinedOutput = [execution.stdout, execution.stderr]
+    .filter((chunk) => chunk.trim().length > 0)
+    .join("\n");
+  const rawOutputPath = isLargeCommandOutput(combinedOutput)
+    ? await storeLargeTestOutput(rootDir, combinedOutput)
+    : null;
+  const summary: TestRunSummary = summarizeTestRunOutput({
+    rootDir,
+    command: testCommand,
+    exitCode: execution.exitCode,
+    stdout: execution.stdout,
+    stderr: execution.stderr,
+    rawOutputPath,
+  });
+
+  return {
+    exitCode: summary.passed ? 0 : 1,
+    output: renderJsonOutput({
+      requestedSummary: command.summary,
+      ...summary,
+    }),
+  };
+}
+
+function summarizeAuditChecks(input: {
+  readonly file: string;
+  readonly locateResult: LocateContextResult;
+}): {
+  readonly file: string;
+  readonly area: string;
+  readonly readFirst: readonly string[];
+  readonly symbols: readonly string[];
+  readonly tests: readonly string[];
+  readonly commands: readonly string[];
+  readonly doNotReadYet: readonly string[];
+} {
+  return {
+    file: input.file,
+    area: input.locateResult.area,
+    readFirst: input.locateResult.readFirst,
+    symbols: input.locateResult.symbols,
+    tests: input.locateResult.tests,
+    commands: input.locateResult.commands,
+    doNotReadYet: input.locateResult.doNotReadYet,
+  };
+}
+
+async function runAuditCommand(command: ParsedAuditCommand): Promise<CliResult> {
+  const rootDir = process.cwd();
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
+
+  if (command.scope === "full") {
+    const auditCommand = detectScriptCommand(analysis.packageManager, "audit");
+    const execution = runShellCommand(auditCommand, rootDir);
+    const output = [execution.stdout, execution.stderr]
+      .filter((chunk) => chunk.trim().length > 0)
+      .join("\n");
+
+    return {
+      exitCode: execution.exitCode === 0 ? 0 : 1,
+      output: output.length > 0 ? output : `${auditCommand} exited with code ${execution.exitCode}.`,
+    };
+  }
+
+  const contextIndex = await loadContextIndex(rootDir, analysis);
+  const changed = collectGitChangedFiles(rootDir);
+  const checks = changed.files.map((file) => summarizeAuditChecks({
+    file,
+    locateResult: locateContextIndexArea(contextIndex, file),
+  }));
+  const relevantAreas = [...new Set(checks.map((check) => check.area))].sort((left, right) => left.localeCompare(right));
+  const suggestedCommands = [...new Set(checks.flatMap((check) => check.commands))].sort((left, right) => left.localeCompare(right));
+  const summary = changed.available
+    ? `Scanned ${changed.files.length} changed file(s) across ${relevantAreas.length} area(s).`
+    : "Git status was unavailable, so no changed-file audit was produced.";
+
+  return {
+    exitCode: 0,
+    output: renderJsonOutput({
+      mode: "changed",
+      projectName: contextIndex.projectName,
+      gitAvailable: changed.available,
+      changedFiles: changed.files,
+      relevantAreas,
+      checks,
+      suggestedCommands,
+      summary,
+    }),
+  };
+}
+
 async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise<CliResult> {
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
   const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const workflowId = command.workflowId ?? config.defaultWorkflows[command.type];
   const workflow = await buildWorkflowDefinition(rootDir, workflowId);
   const result = await createIssueWorkspace({
@@ -2536,6 +3559,33 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
     ],
   });
 
+  const planningDocs = await ensurePlanningDocs(rootDir, analysis);
+  if (planningDocs.createdFiles.length > 0) {
+    const planningLogEntry = createLogEntry({
+      timestamp: new Date().toISOString(),
+      step: "Planning Docs Prepared",
+      actions: [
+        "Created missing PRD/ARD planning docs before workflow execution.",
+        ...planningDocs.createdFiles.map((file) => `Created ${file}.`),
+      ],
+      evidence: [...planningDocs.evidence],
+      summary: "Planning docs were prepared for the issue workspace.",
+      nextStep: result.initialLogEntry.nextStep,
+    });
+    await appendLogEntryToIssue(rootDir, result.issue.id, result.issue.title, planningLogEntry);
+  }
+
+  const activeIssue = await buildActiveIssueNavigationContext({
+    rootDir,
+    analysis,
+    issue: result.issue,
+    workflowState: result.workflowState,
+    issuePaths: result.issuePaths,
+    nextStep: result.initialLogEntry.nextStep,
+    evidenceFiles: await collectIssueEvidence(rootDir, result.issue.id),
+  });
+  await refreshWorkspaceArtifacts(rootDir, activeIssue);
+
   return {
     exitCode: 0,
     output: formatIssueSummary(result),
@@ -2544,9 +3594,26 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
 
 async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Promise<CliResult> {
   const rootDir = process.cwd();
+  const naturalLanguageRuleUpdate = detectNaturalLanguageRuleUpdate(command.request);
+  if (naturalLanguageRuleUpdate !== null) {
+    await ensureInitializedProject(rootDir);
+    return await runRuleUpdateCommand({
+      kind: "rule:update",
+      ruleId: naturalLanguageRuleUpdate.ruleId,
+      input: naturalLanguageRuleUpdate.input,
+    });
+  }
+
   const analysis = analyzeRequest(command.request);
 
-  if (!analysis.requiresIssue) {
+  const issueCreatingModes: readonly RequestAnalysis["executionMode"][] = [
+    "create_issue",
+    "plan_mvp",
+    "decompose_project",
+    "run_review",
+  ];
+
+  if (!issueCreatingModes.includes(analysis.executionMode)) {
     return {
       exitCode: 0,
       output: [
@@ -2559,6 +3626,7 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
 
   await ensureInitializedProject(rootDir);
   const config = await readProjectConfig(rootDir);
+  const projectAnalysis = await renderProjectAnalysis(rootDir, config.projectName);
   const issueType = command.type ?? analysis.issueType ?? "feature";
   const workflowId = command.workflowId ?? analysis.workflowId ?? config.defaultWorkflows[issueType];
   const reusableWorkspace = await findReusableIssueWorkspace(rootDir, analysis, workflowId);
@@ -2636,6 +3704,9 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
     }
   }
 
+  const planningDocs = analysis.category === "review_task"
+    ? { createdFiles: [] as string[], skippedFiles: [] as string[], evidence: [] as EvidenceRecord[] }
+    : await ensurePlanningDocs(rootDir, projectAnalysis);
   const issueWorkflow = await buildWorkflowDefinition(rootDir, activeWorkspace.issue.workflowId);
   const analysisLogEntry = createLogEntry({
     timestamp: new Date().toISOString(),
@@ -2647,6 +3718,12 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
       `${reusedExistingIssue ? "Reused existing issue" : "Created issue"} ${activeWorkspace.issue.id}.`,
       `Routed to ${activeWorkspace.issue.workflowId}.`,
       "Start with 01-intake.md / clarification before implementation.",
+      ...(planningDocs.createdFiles.length === 0
+        ? []
+        : [
+            "Planning docs were created or refreshed before implementation.",
+            ...planningDocs.createdFiles.map((file) => `Created ${file}.`),
+          ]),
       ...(analysis.needsClarification ? ["Implementation is blocked until clarification questions are answered."] : []),
       ...(analysis.clarificationQuestions.length === 0
         ? []
@@ -2660,6 +3737,7 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
         detail: analysis.reason,
         location: activeWorkspace.issue.logPath,
       }),
+      ...planningDocs.evidence,
     ],
     summary: reusedExistingIssue
       ? `Reused ${activeWorkspace.issue.id} for the analyzed request.`
@@ -2668,6 +3746,17 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
   });
 
   await appendLogEntryToIssue(rootDir, activeWorkspace.issue.id, activeWorkspace.issue.title, analysisLogEntry);
+
+  const activeIssue = await buildActiveIssueNavigationContext({
+    rootDir,
+    analysis: projectAnalysis,
+    issue: activeWorkspace.issue,
+    workflowState: activeWorkspace.workflowState,
+    issuePaths: activeWorkspace.issuePaths,
+    nextStep: analysisLogEntry.nextStep,
+    evidenceFiles: await collectIssueEvidence(rootDir, activeWorkspace.issue.id),
+  });
+  await refreshWorkspaceArtifacts(rootDir, activeIssue);
 
   return {
     exitCode: 0,
@@ -2687,6 +3776,8 @@ async function runDecisionCreateCommand(command: ParsedDecisionCreateCommand): P
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
   const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const evidence = [
     ...(await collectIssueEvidence(rootDir, workspace.issue.id)),
     ...workspace.workflowState.evidence,
@@ -2732,6 +3823,15 @@ async function runDecisionCreateCommand(command: ParsedDecisionCreateCommand): P
     nextStep: workspace.workflowState.currentStep || null,
   });
   await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, logEntry);
+  await refreshIssueNavigationArtifacts({
+    rootDir,
+    analysis,
+    issue: workspace.issue,
+    workflowState: workspace.workflowState,
+    issuePaths: workspace.issuePaths,
+    nextStep: workspace.workflowState.currentStep || null,
+    evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+  });
 
   return {
     exitCode: 0,
@@ -2748,6 +3848,8 @@ async function runReviewRunCommand(command: ParsedReviewRunCommand): Promise<Cli
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
   const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const evidence = [
     ...(await collectIssueEvidence(rootDir, workspace.issue.id)),
     ...workspace.workflowState.evidence,
@@ -2791,6 +3893,15 @@ async function runReviewRunCommand(command: ParsedReviewRunCommand): Promise<Cli
     nextStep: workspace.workflowState.currentStep || null,
   });
   await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, logEntry);
+  await refreshIssueNavigationArtifacts({
+    rootDir,
+    analysis,
+    issue: workspace.issue,
+    workflowState: workspace.workflowState,
+    issuePaths: workspace.issuePaths,
+    nextStep: workspace.workflowState.currentStep || null,
+    evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+  });
 
   return {
     exitCode: report.passed ? 0 : 1,
@@ -2876,6 +3987,8 @@ async function runSkillRunCommand(command: ParsedSkillRunCommand): Promise<CliRe
 
   if (command.issueId !== undefined) {
     const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+    const config = await readProjectConfig(rootDir);
+    const analysis = await renderProjectAnalysis(rootDir, config.projectName);
     const logEntry = createLogEntry({
       timestamp: new Date().toISOString(),
       step: "Skill Executed",
@@ -2895,6 +4008,15 @@ async function runSkillRunCommand(command: ParsedSkillRunCommand): Promise<CliRe
       nextStep: workspace.workflowState.currentStep || null,
     });
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, logEntry);
+    await refreshIssueNavigationArtifacts({
+      rootDir,
+      analysis,
+      issue: workspace.issue,
+      workflowState: workspace.workflowState,
+      issuePaths: workspace.issuePaths,
+      nextStep: workspace.workflowState.currentStep || null,
+      evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+    });
   }
 
   return {
@@ -3000,6 +4122,8 @@ async function runRuleApplyCommand(command: ParsedRuleApplyCommand): Promise<Cli
 
   if (command.issueId !== undefined) {
     const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+    const config = await readProjectConfig(rootDir);
+    const analysis = await renderProjectAnalysis(rootDir, config.projectName);
     const logEntry = createLogEntry({
       timestamp: new Date().toISOString(),
       step: "Rule Applied",
@@ -3019,11 +4143,155 @@ async function runRuleApplyCommand(command: ParsedRuleApplyCommand): Promise<Cli
       nextStep: workspace.workflowState.currentStep || null,
     });
     await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, logEntry);
+    await refreshIssueNavigationArtifacts({
+      rootDir,
+      analysis,
+      issue: workspace.issue,
+      workflowState: workspace.workflowState,
+      issuePaths: workspace.issuePaths,
+      nextStep: workspace.workflowState.currentStep || null,
+      evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+    });
   }
 
   return {
     exitCode: 0,
     output: summary,
+  };
+}
+
+async function collectRuleMarkdownIds(directory: string, relativePrefix = ""): Promise<string[]> {
+  if (!(await pathExists(directory))) {
+    return [];
+  }
+
+  const entries = await readdir(directory, { withFileTypes: true });
+  const ruleIds: string[] = [];
+  for (const entry of entries) {
+    const relativePath = relativePrefix.length === 0 ? entry.name : `${relativePrefix}/${entry.name}`;
+    const absolutePath = joinPaths(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      ruleIds.push(...await collectRuleMarkdownIds(absolutePath, relativePath));
+      continue;
+    }
+
+    if (!entry.isFile() || !entry.name.endsWith(".md") || entry.name === "README.md") {
+      continue;
+    }
+
+    ruleIds.push(relativePath.slice(0, -3));
+  }
+
+  return ruleIds;
+}
+
+async function runRuleUpdateCommand(command: ParsedRuleUpdateCommand): Promise<CliResult> {
+  const rootDir = process.cwd();
+  await ensureInitializedProject(rootDir);
+
+  const timestamp = new Date().toISOString();
+  const rulePaths = resolveRuleScaffoldPaths(rootDir, command.ruleId);
+  const ruleTitle = humanizeRuleId(command.ruleId);
+  const changeLogPath = joinPaths(rootDir, ".flowness", "rules", "change-log.md");
+  const ruleExists = await pathExists(rulePaths.ruleFile);
+
+  if (!ruleExists) {
+    await writeTextFile(
+      rulePaths.ruleFile,
+      renderRuleMarkdown(command.ruleId, ruleTitle, `Append-only rule updates for ${ruleTitle}.`),
+      false,
+    );
+  }
+
+  await appendTextFile(
+    rulePaths.ruleFile,
+    renderRuleUpdateBlock({
+      ruleId: command.ruleId,
+      instruction: command.input,
+      timestamp,
+    }),
+  );
+
+  if (!(await pathExists(changeLogPath))) {
+    await writeTextFile(
+      changeLogPath,
+      [
+        "# Rule Change Log",
+        "",
+        "- Append-only history of rule updates and overrides.",
+        "- Every update should record the source instruction, target rule file, and why it changed.",
+        "",
+        "## Entries",
+        "",
+      ].join("\n"),
+      false,
+    );
+  }
+
+  await appendTextFile(
+    changeLogPath,
+    renderRuleChangeLogEntry({
+      ruleId: command.ruleId,
+      instruction: command.input,
+      timestamp,
+      source: command.issueId ?? "direct command",
+    }),
+  );
+
+  let issueLogPath: string | null = null;
+  if (command.issueId !== undefined) {
+    const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+    const config = await readProjectConfig(rootDir);
+    const analysis = await renderProjectAnalysis(rootDir, config.projectName);
+    const logEntry = createLogEntry({
+      timestamp,
+      step: "Rule Updated",
+      actions: [
+        `Updated rule ${command.ruleId}.`,
+        `Instruction: ${command.input}`,
+        `Change log: ${changeLogPath}`,
+      ],
+      evidence: [
+        createEvidenceRecord({
+          kind: "file",
+          title: `rules/${command.ruleId}.md`,
+          location: rulePaths.ruleFile,
+          detail: command.input,
+        }),
+        createEvidenceRecord({
+          kind: "file",
+          title: "rules/change-log.md",
+          location: changeLogPath,
+          detail: command.input,
+        }),
+      ],
+      summary: `Rule ${command.ruleId} was updated.`,
+      nextStep: workspace.workflowState.currentStep || null,
+    });
+
+    await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, logEntry);
+    issueLogPath = workspace.issue.logPath;
+    await refreshIssueNavigationArtifacts({
+      rootDir,
+      analysis,
+      issue: workspace.issue,
+      workflowState: workspace.workflowState,
+      issuePaths: workspace.issuePaths,
+      nextStep: workspace.workflowState.currentStep || null,
+      evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+    });
+  }
+
+  return {
+    exitCode: 0,
+    output: formatRuleUpdateSummary({
+      ruleId: command.ruleId,
+      filePath: rulePaths.ruleFile,
+      logPath: issueLogPath,
+      changeLogPath,
+      action: ruleExists ? "updated" : "created",
+    }),
   };
 }
 
@@ -3038,14 +4306,9 @@ async function runRuleListCommand(): Promise<CliResult> {
     };
   }
 
-  const entries = await readdir(rulesDir, { withFileTypes: true });
+  const ruleIds = (await collectRuleMarkdownIds(rulesDir)).sort((left, right) => left.localeCompare(right));
   const rows: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".md")) {
-      continue;
-    }
-
-    const ruleId = entry.name.slice(0, -3);
+  for (const ruleId of ruleIds) {
     const filePath = resolveRuleScaffoldPaths(rootDir, ruleId).ruleFile;
     if (!(await pathExists(filePath))) {
       continue;
@@ -3069,6 +4332,8 @@ async function runWorkflowStepCommand(command: ParsedWorkflowStepCommand): Promi
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
   const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const config = await readProjectConfig(rootDir);
+  const projectAnalysis = await renderProjectAnalysis(rootDir, config.projectName);
   const workflow = await buildWorkflowDefinition(rootDir, workspace.issue.workflowId);
   const stepName = workspace.workflowState.currentStep || workflow.steps[0]?.name || "";
   if (stepName.length === 0) {
@@ -3076,6 +4341,80 @@ async function runWorkflowStepCommand(command: ParsedWorkflowStepCommand): Promi
       exitCode: 1,
       output: `Workflow "${workflow.id}" does not contain any steps.`,
     };
+  }
+
+  const stepMetadataMap = await loadWorkflowStepMetadataMap(rootDir, workflow.id);
+  const currentStepMetadata = stepMetadataMap.get(stepName) ?? null;
+  const currentStepFile = currentStepMetadata?.fileName ?? "README.md";
+
+  if (workspace.workflowState.completedSteps.length > 0 && (workflow.id === "feature-development" || workflow.id === "mvp-planning")) {
+    const missingDocs: string[] = [];
+    if (!(await pathExists(join(rootDir, "docs", "PRD.md")))) {
+      missingDocs.push("docs/PRD.md");
+    }
+    if (!(await pathExists(join(rootDir, "docs", "ARD.md")))) {
+      missingDocs.push("docs/ARD.md");
+    }
+
+    if (missingDocs.length > 0) {
+      const blockedAt = new Date().toISOString();
+      const blockedState = {
+        ...workspace.workflowState,
+        blocked: true,
+        updatedAt: blockedAt,
+      };
+      const updatedWorkspace = await writeIssueWorkspaceState(rootDir, workspace.issue, blockedState, workspace.description);
+      const blockedLogEntry = createLogEntry({
+        timestamp: blockedAt,
+        step: "Planning Docs Blocked",
+        actions: [
+          `Missing planning docs before running "${stepName}".`,
+          `Missing files: ${missingDocs.join(", ")}`,
+          "Restore or create the planning docs before retrying the workflow step.",
+        ],
+        evidence: [
+          createEvidenceRecord({
+            kind: "command_output",
+            title: "Missing planning docs",
+            detail: missingDocs.join(", "),
+          }),
+        ],
+        summary: "Workflow step blocked until PRD/ARD exist.",
+        nextStep: stepName,
+      });
+
+      await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, blockedLogEntry);
+      const blockedActiveIssue = await buildActiveIssueNavigationContext({
+        rootDir,
+        analysis: projectAnalysis,
+        issue: updatedWorkspace.issue,
+        workflowState: updatedWorkspace.workflowState,
+        issuePaths: workspace.issuePaths,
+        nextStep: stepName,
+        blocked: true,
+        blockReason: "missing_planning_docs",
+        pendingStep: stepName,
+        requiredAction: "Restore docs/PRD.md and docs/ARD.md, then retry the workflow step.",
+        evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+      });
+      await refreshWorkspaceArtifacts(rootDir, blockedActiveIssue);
+
+      return {
+        exitCode: 1,
+        output: formatWorkflowStepSummary({
+          issueId: workspace.issue.id,
+          stepName,
+          status: "blocked",
+          issueState: updatedWorkspace.issue.state,
+          gateStatus: "blocked: missing planning docs",
+          actions: blockedLogEntry.actions,
+          evidence: blockedLogEntry.evidence,
+          nextStep: stepName,
+          nextStepFile: currentStepFile,
+          logPath: workspace.issue.logPath,
+        }),
+      };
+    }
   }
 
   const context = createWorkflowStepContext({
@@ -3099,6 +4438,8 @@ async function runWorkflowStepCommand(command: ParsedWorkflowStepCommand): Promi
     workflow,
     stepName,
     outcome,
+    analysis: projectAnalysis,
+    stepMetadataMap,
   });
 }
 
@@ -3106,6 +4447,8 @@ async function runWorkflowRecoverCommand(command: ParsedWorkflowRecoverCommand):
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
   const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const config = await readProjectConfig(rootDir);
+  const projectAnalysis = await renderProjectAnalysis(rootDir, config.projectName);
   const workflow = await buildWorkflowDefinition(rootDir, workspace.issue.workflowId);
   const stepName = workspace.workflowState.currentStep || workflow.steps[0]?.name || "";
   if (stepName.length === 0) {
@@ -3114,6 +4457,7 @@ async function runWorkflowRecoverCommand(command: ParsedWorkflowRecoverCommand):
       output: `Workflow "${workflow.id}" does not contain any steps.`,
     };
   }
+  const stepMetadataMap = await loadWorkflowStepMetadataMap(rootDir, workflow.id);
 
   const context = createWorkflowStepContext({
     issueId: workspace.issue.id,
@@ -3159,6 +4503,8 @@ async function runWorkflowRecoverCommand(command: ParsedWorkflowRecoverCommand):
     workflow,
     stepName,
     outcome: retryOutcome,
+    analysis: projectAnalysis,
+    stepMetadataMap,
   });
 
   return {
@@ -3192,6 +4538,58 @@ async function runStatusCommand(command: ParsedStatusCommand): Promise<CliResult
 
   const latestLogEntry = await readLatestIssueLogEntry(rootDir, workspace.issue.id);
   const evidence = await collectIssueEvidence(rootDir, workspace.issue.id);
+  const currentStep = workspace.workflowState.currentStep.length === 0 ? null : workspace.workflowState.currentStep;
+  const latestLogText = latestLogEntry === null
+    ? ""
+    : [
+        latestLogEntry.step,
+        latestLogEntry.summary,
+      ].join("\n");
+  const derivedBlockContext = workspace.workflowState.blocked
+    ? (() => {
+        if (/Awaiting human approval/i.test(latestLogText) || /Human gate/i.test(latestLogText)) {
+          return {
+            blockReason: "waiting_human_approval",
+            pendingStep: currentStep,
+            requiredAction: `Approve the ${currentStep ?? "current"} gate before continuing.`,
+          };
+        }
+
+        if (/Planning Docs Blocked/i.test(latestLogText) || /planning docs/i.test(latestLogText)) {
+          return {
+            blockReason: "missing_planning_docs",
+            pendingStep: currentStep,
+            requiredAction: "Restore docs/PRD.md and docs/ARD.md, then retry the step.",
+          };
+        }
+
+        if (/Close Blocked/i.test(latestLogText) && /Evidence Review/i.test(latestLogText)) {
+          return {
+            blockReason: "missing_evidence_review",
+            pendingStep: currentStep,
+            requiredAction: "Record an Evidence Review log entry before retrying close.",
+          };
+        }
+
+        if (currentStep !== null && workspace.workflowState.failedSteps.includes(currentStep)) {
+          return {
+            blockReason: "workflow_failure",
+            pendingStep: currentStep,
+            requiredAction: `Run flowness workflow:recover --issue ${workspace.issue.id} --root-cause "<cause>" before retrying.`,
+          };
+        }
+
+        return {
+          blockReason: "blocked",
+          pendingStep: currentStep,
+          requiredAction: "Resolve the block before continuing.",
+        };
+      })()
+    : {
+        blockReason: null,
+        pendingStep: null,
+        requiredAction: null,
+      };
 
   return {
     exitCode: 0,
@@ -3202,6 +4600,9 @@ async function runStatusCommand(command: ParsedStatusCommand): Promise<CliResult
       currentStep: workspace.workflowState.currentStep,
       completedSteps: workspace.workflowState.completedSteps,
       blocked: workspace.workflowState.blocked,
+      blockReason: derivedBlockContext.blockReason,
+      pendingStep: derivedBlockContext.pendingStep,
+      requiredAction: derivedBlockContext.requiredAction,
       latestLogStep: latestLogEntry === null ? null : latestLogEntry.step,
       evidenceCount: evidence.length,
       logPath: workspace.issue.logPath,
@@ -3213,6 +4614,8 @@ async function runEvidenceAddCommand(command: ParsedEvidenceAddCommand): Promise
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
   const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const evidence = createEvidenceRecord({
     kind: command.evidenceKind,
     title: command.title,
@@ -3253,6 +4656,15 @@ async function runEvidenceAddCommand(command: ParsedEvidenceAddCommand): Promise
     nextStep: updatedWorkspace.workflowState.currentStep || null,
   });
   await appendLogEntryToIssue(rootDir, workspace.issue.id, workspace.issue.title, logEntry);
+  await refreshIssueNavigationArtifacts({
+    rootDir,
+    analysis,
+    issue: updatedWorkspace.issue,
+    workflowState: updatedWorkspace.workflowState,
+    issuePaths: updatedWorkspace.issuePaths,
+    nextStep: updatedWorkspace.workflowState.currentStep || null,
+    evidenceFiles: await collectIssueEvidence(rootDir, workspace.issue.id),
+  });
 
   return {
     exitCode: 0,
@@ -3294,12 +4706,14 @@ async function runValidateCommand(): Promise<CliResult> {
     ".flowness/logs",
     ".flowness/workflows",
     ".flowness/rules",
+    ".flowness/rules/tech",
     ".flowness/skills",
     ".flowness/scripts",
     ".flowness/templates",
     ".flowness/prompts",
     ".flowness/settings",
     ".flowness/state",
+    "docs",
   ];
 
   for (const directory of requiredDirectories) {
@@ -3315,8 +4729,23 @@ async function runValidateCommand(): Promise<CliResult> {
     ".flowness/context-index.json",
     ".flowness/commands.json",
     ".flowness/harness-manifest.json",
+    ".flowness/navigation.md",
+    ".flowness/state/active-issue.md",
     ".flowness/rules/README.md",
+    ".flowness/rules/git.md",
     ".flowness/rules/commit-policy.md",
+    ".flowness/rules/project-overrides.md",
+    ".flowness/rules/change-log.md",
+    ".flowness/rules/tech/README.md",
+    ".flowness/rules/tech/java.md",
+    ".flowness/rules/tech/javascript.md",
+    ".flowness/rules/tech/typescript.md",
+    ".flowness/rules/tech/python.md",
+    ".flowness/rules/tech/spring.md",
+    ".flowness/rules/tech/react.md",
+    ".flowness/rules/tech/nextjs.md",
+    ".flowness/rules/tech/nestjs.md",
+    ".flowness/rules/tech/django.md",
     ".flowness/scripts/README.md",
     ".flowness/scripts/flowness-runner.ts",
     ".flowness/scripts/workflow-guard.ts",
@@ -3326,6 +4755,8 @@ async function runValidateCommand(): Promise<CliResult> {
     ".flowness/workflows/README.md",
     ".flowness/skills/README.md",
     ".flowness/templates/README.md",
+    "docs/PRD.md",
+    "docs/ARD.md",
   ];
 
   for (const file of requiredFiles) {
@@ -3337,26 +4768,6 @@ async function runValidateCommand(): Promise<CliResult> {
   return {
     exitCode: errors.length === 0 ? 0 : 1,
     output: formatWorkflowValidationSummary("workspace", errors),
-  };
-}
-
-async function runUpgradeCommand(): Promise<CliResult> {
-  const rootDir = process.cwd();
-  await ensureInitializedProject(rootDir);
-  const config = await readProjectConfig(rootDir);
-  const result = await initializeProject({
-    rootDir,
-    projectName: config.projectName,
-    force: false,
-  });
-
-  return {
-    exitCode: 0,
-    output: [
-      `Upgraded Flowness project at ${result.rootDir}.`,
-      `Created files: ${result.createdFiles.length === 0 ? "none" : result.createdFiles.join(", ")}`,
-      `Skipped files: ${result.skippedFiles.length === 0 ? "none" : result.skippedFiles.join(", ")}`,
-    ].join("\n"),
   };
 }
 
@@ -3477,6 +4888,9 @@ function usage(): string {
     "  flowness workflow:validate [workflow-id]",
     "  flowness step --issue <issue-id> [--approve]",
     "  flowness status --issue <issue-id>",
+    "  flowness locate <task description>",
+    "  flowness test [--summary]",
+    "  flowness audit [--changed|--full]",
     "  flowness evidence:add --issue <issue-id> --kind <kind> --title <title> [--detail <text>] [--location <path>]",
     "  flowness workflow:step --issue <issue-id> [--approve]",
     "  flowness workflow:recover --issue <issue-id> --root-cause <text>",
@@ -3486,10 +4900,11 @@ function usage(): string {
     "  flowness skill:list",
     "  flowness rule:create [--id <rule-id>] [--title <title>] [--description <text>] [--force]",
     "  flowness rule:apply --id <rule-id> [--issue <issue-id>] [--input <text>]",
+    "  flowness rule:update --id <rule-id> [--issue <issue-id>] --input <text>",
     "  flowness rule:list",
     "  flowness config:gate [--set <instruction>]",
     "  flowness validate",
-    "  flowness upgrade",
+    "  flowness upgrade [--dry-run|--apply] [--from <version>] [--to <version>]",
     "",
     "Implemented commands:",
     "  init",
@@ -3501,6 +4916,9 @@ function usage(): string {
     "  workflow:validate",
     "  step",
     "  status",
+    "  locate",
+    "  test",
+    "  audit",
     "  evidence:add",
     "  workflow:step",
     "  workflow:recover",
@@ -3510,6 +4928,7 @@ function usage(): string {
     "  skill:list",
     "  rule:create",
     "  rule:apply",
+    "  rule:update",
     "  rule:list",
     "  config:gate",
     "  validate",
@@ -3585,6 +5004,18 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
       return await runStatusCommand(parsed);
     }
 
+    if (parsed.kind === "locate") {
+      return await runLocateCommand(parsed);
+    }
+
+    if (parsed.kind === "test") {
+      return await runTestCommand(parsed);
+    }
+
+    if (parsed.kind === "audit") {
+      return await runAuditCommand(parsed);
+    }
+
     if (parsed.kind === "evidence:add") {
       return await runEvidenceAddCommand(parsed);
     }
@@ -3613,6 +5044,10 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
       return await runRuleApplyCommand(parsed);
     }
 
+    if (parsed.kind === "rule:update") {
+      return await runRuleUpdateCommand(parsed);
+    }
+
     if (parsed.kind === "rule:list") {
       return await runRuleListCommand();
     }
@@ -3626,7 +5061,7 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     }
 
     if (parsed.kind === "upgrade") {
-      return await runUpgradeCommand();
+      return await runUpgradeCommand(process.cwd(), parsed);
     }
 
     return {

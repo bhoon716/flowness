@@ -4,6 +4,7 @@ import {
   ensureDirectory,
   pathExists,
   makeExecutable,
+  sha256Hex,
   writeTextFile,
 } from "./filesystem.js";
 import {
@@ -16,6 +17,9 @@ import type {
 import {
   renderGeneratedAgentsMarkdown,
   renderGeneratedConfigArtifacts,
+  renderGeneratedHarnessManifestArtifact,
+  renderGeneratedNavigationArtifacts,
+  renderGeneratedPlanningDocArtifacts,
   renderGeneratedRuleArtifacts,
   renderGeneratedScriptArtifacts,
   renderGeneratedScriptsReadmeMarkdown,
@@ -35,6 +39,7 @@ const agentDirectories: readonly ScaffoldDirectory[] = [
   { path: ".flowness", description: "Flowness-managed project workspace" },
   { path: ".flowness/config", description: "Project-level configuration" },
   { path: ".flowness/issues", description: "Issue records" },
+  { path: ".flowness/findings", description: "Review findings" },
   { path: ".flowness/logs", description: "Append-only execution logs" },
   { path: ".flowness/workflows", description: "Workflow definitions" },
   { path: ".flowness/rules", description: "Global rules" },
@@ -413,7 +418,15 @@ export async function initializeProject(
     }
   }
 
-  for (const configFile of renderGeneratedConfigArtifacts(analysis)) {
+  const configArtifacts = await renderGeneratedConfigArtifacts(analysis, null, rootDir);
+  const navigationArtifacts = renderGeneratedNavigationArtifacts(analysis);
+  const generatedFileHashes = Object.fromEntries([
+    ...configArtifacts,
+    ...navigationArtifacts,
+  ].map((artifact) => [artifact.path, sha256Hex(artifact.content)] as const));
+  const manifestArtifact = renderGeneratedHarnessManifestArtifact(analysis, null, generatedFileHashes);
+
+  for (const configFile of configArtifacts) {
     const configWriteResult = await writeTextFile(
       join(rootDir, configFile.path),
       configFile.content,
@@ -424,6 +437,43 @@ export async function initializeProject(
     } else {
       skippedFiles.push(configFile.path);
     }
+  }
+
+  for (const planningFile of renderGeneratedPlanningDocArtifacts(analysis)) {
+    const planningWriteResult = await writeTextFile(
+      join(rootDir, planningFile.path),
+      planningFile.content,
+      force,
+    );
+    if (planningWriteResult === "written") {
+      createdFiles.push(planningFile.path);
+    } else {
+      skippedFiles.push(planningFile.path);
+    }
+  }
+
+  for (const navigationFile of navigationArtifacts) {
+    const navigationWriteResult = await writeTextFile(
+      join(rootDir, navigationFile.path),
+      navigationFile.content,
+      force,
+    );
+    if (navigationWriteResult === "written") {
+      createdFiles.push(navigationFile.path);
+    } else {
+      skippedFiles.push(navigationFile.path);
+    }
+  }
+
+  const manifestWriteResult = await writeTextFile(
+    join(rootDir, manifestArtifact.path),
+    manifestArtifact.content,
+    force,
+  );
+  if (manifestWriteResult === "written") {
+    createdFiles.push(manifestArtifact.path);
+  } else {
+    skippedFiles.push(manifestArtifact.path);
   }
 
   const scriptsReadmeWriteResult = await writeTextFile(

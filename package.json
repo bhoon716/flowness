@@ -1,7 +1,7 @@
 {
   "name": "@flowness-labs/monorepo",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Flowness monorepo scaffold and CLI workspace.",
   "type": "module",
   "workspaces": [
@@ -11,6 +11,8 @@
     "build": "tsc -b",
     "test": "npm run build && node --test $(find packages -path '*/dist/*.test.js' | sort)",
     "audit": "node scripts/audit-v0.1.mjs",
+    "release:docs-check": "node scripts/release-docs-check.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "typecheck": "tsc -b --pretty false",
     "link:cli": "npm run build && npm link --force --workspace packages/cli"
   },
@@ -25,10 +27,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/flowness-labs/flowness.git"
+    "url": "git+https://github.com/bhoon716/flowness.git"
   },
   "bugs": {
-    "url": "https://github.com/flowness-labs/flowness/issues"
+    "url": "https://github.com/bhoon716/flowness/issues"
   },
-  "homepage": "https://github.com/flowness-labs/flowness#readme"
+  "homepage": "https://github.com/bhoon716/flowness#readme"
 }

@@ -230,9 +230,28 @@ function renderEvidenceLines(evidence: readonly EvidenceRecord[]): string[] {
 
   return evidence.map((item) => {
     const location = item.location ? ` (${item.location})` : "";
-    const detail = item.detail ? ` - ${item.detail}` : "";
+    const detail = item.detail === undefined ? "" : ` - ${renderEvidenceDetailPreview(item.detail)}`;
     return `- [${item.kind}] ${item.title}${location}${detail}`;
   });
+}
+
+function renderEvidenceDetailPreview(detail: string): string {
+  const normalized = detail.replace(/\r\n/g, "\n").trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  const lines = normalized.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length === 0) {
+    return "";
+  }
+
+  if (lines.length === 1 && lines[0]!.length <= 240) {
+    return lines[0]!;
+  }
+
+  const preview = lines.slice(0, 3).join(" | ");
+  return `${preview.slice(0, 240)}… (${lines.length} lines, trimmed)`;
 }
 
 function renderIssueLogMarkdown(

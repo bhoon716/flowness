@@ -1,6 +1,7 @@
 export const issueTypeValues = [
   "feature",
   "bugfix",
+  "review",
   "refactor",
   "research",
   "investigation",
@@ -35,11 +36,12 @@ export type EvidenceKind = (typeof evidenceKindValues)[number];
 
 export const reviewRoleValues = [
   "Architecture Reviewer",
+  "Correctness Reviewer",
   "Security Reviewer",
-  "Testing Reviewer",
-  "Documentation Reviewer",
+  "Test Coverage Reviewer",
   "Maintainability Reviewer",
-  "Performance Reviewer"
+  "Performance Reviewer",
+  "Documentation Reviewer",
 ] as const;
 
 export type ReviewRole = (typeof reviewRoleValues)[number];
@@ -157,14 +159,20 @@ export interface DecisionDocument {
 }
 
 export interface ReviewFinding {
-  readonly severity: "info" | "warning" | "blocking";
-  readonly message: string;
+  readonly id: string;
+  readonly perspective: ReviewRole;
+  readonly severity: "critical" | "high" | "medium" | "low";
+  readonly filePath: string | null;
   readonly evidence?: readonly EvidenceRecord[];
+  readonly problem: string;
+  readonly recommendation: string;
+  readonly requiresFollowUpIssue: boolean;
+  readonly rationale: string;
 }
 
 export interface ReviewResult {
   readonly role: ReviewRole;
-  readonly status: "pass" | "fail";
+  readonly status: "pass" | "concern" | "fail";
   readonly summary: string;
   readonly findings: readonly ReviewFinding[];
 }

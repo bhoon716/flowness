@@ -5,9 +5,11 @@ export interface FlownessWorkspacePaths {
   readonly agentDir: string;
   readonly agentConfigDir: string;
   readonly agentIssuesDir: string;
+  readonly findingsDir: string;
   readonly agentLogsDir: string;
   readonly agentWorkflowsDir: string;
   readonly agentRulesDir: string;
+  readonly agentRulesTechDir: string;
   readonly agentSkillsDir: string;
   readonly agentScriptsDir: string;
   readonly agentTemplatesDir: string;
@@ -16,9 +18,15 @@ export interface FlownessWorkspacePaths {
   readonly configDir: string;
   readonly projectProfilePath: string;
   readonly contextIndexPath: string;
+  readonly navigationPath: string;
   readonly commandsPath: string;
   readonly harnessManifestPath: string;
+  readonly activeIssuePath: string;
+  readonly findingsReadmePath: string;
   readonly stateDir: string;
+  readonly docsDir: string;
+  readonly prdPath: string;
+  readonly ardPath: string;
   readonly codexDir: string;
   readonly flownessDir: string;
   readonly configPath: string;
@@ -33,9 +41,11 @@ export function resolveWorkspacePaths(rootDir: string): FlownessWorkspacePaths {
     agentDir: joinPaths(rootDir, ".flowness"),
     agentConfigDir: joinPaths(rootDir, ".flowness", "config"),
     agentIssuesDir: joinPaths(rootDir, ".flowness", "issues"),
+    findingsDir: joinPaths(rootDir, ".flowness", "findings"),
     agentLogsDir: joinPaths(rootDir, ".flowness", "logs"),
     agentWorkflowsDir: joinPaths(rootDir, ".flowness", "workflows"),
     agentRulesDir: joinPaths(rootDir, ".flowness", "rules"),
+    agentRulesTechDir: joinPaths(rootDir, ".flowness", "rules", "tech"),
     agentSkillsDir: joinPaths(rootDir, ".flowness", "skills"),
     agentScriptsDir: joinPaths(rootDir, ".flowness", "scripts"),
     agentTemplatesDir: joinPaths(rootDir, ".flowness", "templates"),
@@ -44,9 +54,15 @@ export function resolveWorkspacePaths(rootDir: string): FlownessWorkspacePaths {
     configDir: joinPaths(rootDir, ".flowness", "config"),
     projectProfilePath: joinPaths(rootDir, ".flowness", "project-profile.md"),
     contextIndexPath: joinPaths(rootDir, ".flowness", "context-index.json"),
+    navigationPath: joinPaths(rootDir, ".flowness", "navigation.md"),
     commandsPath: joinPaths(rootDir, ".flowness", "commands.json"),
     harnessManifestPath: joinPaths(rootDir, ".flowness", "harness-manifest.json"),
+    activeIssuePath: joinPaths(rootDir, ".flowness", "state", "active-issue.md"),
+    findingsReadmePath: joinPaths(rootDir, ".flowness", "findings", "README.md"),
     stateDir: joinPaths(rootDir, ".flowness", "state"),
+    docsDir: joinPaths(rootDir, "docs"),
+    prdPath: joinPaths(rootDir, "docs", "PRD.md"),
+    ardPath: joinPaths(rootDir, "docs", "ARD.md"),
     codexDir: joinPaths(rootDir, ".codex"),
     flownessDir: joinPaths(rootDir, ".flowness"),
     configPath: joinPaths(rootDir, ".flowness", "config", "project.yaml"),

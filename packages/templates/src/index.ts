@@ -36,6 +36,7 @@ export function templateFriendlyIssueTypes(): readonly IssueType[] {
   return [
     "feature",
     "bugfix",
+    "review",
     "refactor",
     "research",
     "investigation",
@@ -46,4 +47,3 @@ export function templateFriendlyIssueTypes(): readonly IssueType[] {
     "decision",
   ];
 }
-
