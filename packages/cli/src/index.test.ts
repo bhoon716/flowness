@@ -282,7 +282,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.1");
+  assert.equal(manifest.version, "0.2.3");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
   assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");
@@ -624,7 +624,7 @@ test("runCli upgrade --dry-run reports a plan without writing files", async () =
     const result = await runCli(["upgrade", "--dry-run"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: legacy/);
-    assert.match(result.output, /Target version: 0\.1\.5/);
+    assert.match(result.output, /Target version: 0\.2\.3/);
     assert.match(result.output, /Will regenerate:/);
     assert.match(result.output, /Will add if missing:/);
     assert.match(result.output, /Will patch:/);
@@ -693,7 +693,7 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
     const result = await runCli(["upgrade", "--apply"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: 0\.1\.4/);
-    assert.match(result.output, /Target version: 0\.1\.5/);
+    assert.match(result.output, /Target version: 0\.2\.3/);
     assert.match(result.output, /Backup path:/);
     assert.match(result.output, /Report path:/);
     assert.match(result.output, /Updated files:/);
@@ -893,5 +893,44 @@ test("runCli creates and validates workflow scaffolds", async () => {
     const validateResult = await runCli(["workflow:validate", "custom-flow"]);
     assert.equal(validateResult.exitCode, 0);
     assert.match(validateResult.output, /Workflow validation passed for custom-flow\./);
+  });
+});
+
+test("runCli version commands print the package version", async () => {
+  const versionResult1 = await runCli(["--version"]);
+  const versionResult2 = await runCli(["-v"]);
+  assert.equal(versionResult1.exitCode, 0);
+  assert.equal(versionResult2.exitCode, 0);
+  assert.match(versionResult1.output, /^\d+\.\d+\.\d+$/);
+  assert.equal(versionResult1.output, versionResult2.output);
+});
+
+test("runCli upgrade commands use dynamic versioning and respect overrides", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-upgrade-test-"));
+  await seedProject(rootDir);
+  const initResult = await runCli(["init", rootDir, "--name", "upgrade-test-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await rewriteManifestVersion(rootDir, "0.1.4");
+
+  await withWorkingDirectory(rootDir, async () => {
+    // default target follows package version
+    const defaultUpgrade = await runCli(["upgrade", "--dry-run"]);
+    assert.equal(defaultUpgrade.exitCode, 0);
+    // targetVersion should match current package version which is "0.2.3"
+    assert.match(defaultUpgrade.output, /Target version: 0\.2\.3/);
+
+    // upgrade --to respects explicit target version
+    const explicitUpgrade = await runCli(["upgrade", "--dry-run", "--to", "0.2.1"]);
+    assert.equal(explicitUpgrade.exitCode, 0);
+    assert.match(explicitUpgrade.output, /Target version: 0\.2\.1/);
+    assert.match(explicitUpgrade.output, /Requested range: auto -> 0\.2\.1/);
+
+    // add-if-missing entries are unique (no duplicates in the output lines)
+    const addIfMissingLines = defaultUpgrade.output
+      .split("\n")
+      .filter((line) => line.startsWith("- .flowness/"));
+    const uniqueLines = new Set(addIfMissingLines);
+    assert.equal(addIfMissingLines.length, uniqueLines.size, "Found duplicate files in upgrade plan output!");
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@flowness-labs/decision-system",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,7 +14,7 @@
     "dist"
   ],
   "dependencies": {
-    "@flowness-labs/core": "^0.2.1"
+    "@flowness-labs/core": "^0.2.3"
   },
   "scripts": {
     "build": "tsc -b",

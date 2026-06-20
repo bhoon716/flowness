@@ -1773,7 +1773,7 @@ function renderGeneratedHarnessManifestJson(
   generatedFileHashes: GeneratedFileHashes = {},
 ): string {
   const payload = {
-    version: "0.2.1",
+    version: "0.2.3",
     project: {
       name: analysis.projectName,
       packageManager: analysis.packageManager,

@@ -1,4 +1,6 @@
-import { basename, relative } from "node:path";
+import { basename, relative, dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   ensureDirectory,
   joinPaths,
@@ -63,7 +65,17 @@ interface UpgradeBuildResult {
   readonly agentBlockMissingMarkers: boolean;
 }
 
-const targetHarnessVersion = "0.1.5";
+function getCliVersion(): string {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    return pkg.version;
+  } catch {
+    return "0.2.2";
+  }
+}
+
+const targetHarnessVersion = getCliVersion();
 
 function toDisplayVersion(value: string | null): string {
   return value === null || value.trim().length === 0 ? "legacy" : value;
@@ -601,6 +613,13 @@ async function buildUpgradePlan(
 
   const compareOnlyArtifacts = buildCompareOnlyArtifacts(analysis);
   const compareConflicts = await compareExistingArtifacts(rootDir, compareOnlyArtifacts);
+  
+  for (const artifact of compareOnlyArtifacts) {
+    const absolutePath = pathFromRoot(rootDir, artifact.path);
+    if (!(await pathExists(absolutePath))) {
+      addIfMissing.push(toUpgradeWrite(artifact));
+    }
+  }
   for (const artifact of addIfMissingCandidates) {
     const absolutePath = pathFromRoot(rootDir, artifact.path);
     if (!(await pathExists(absolutePath))) {
@@ -618,13 +637,23 @@ async function buildUpgradePlan(
   }
 
   conflicts.push(...compareConflicts);
+
+  const deduplicatedAddIfMissing: UpgradeWrite[] = [];
+  const seenPaths = new Set<string>();
+  for (const item of addIfMissing) {
+    if (!seenPaths.has(item.path)) {
+      seenPaths.add(item.path);
+      deduplicatedAddIfMissing.push(item);
+    }
+  }
+
   const plan: UpgradePlan = {
     currentVersion: currentVersionLabel,
     targetVersion: input.toVersion ?? targetHarnessVersion,
     requestedFromVersion: input.fromVersion,
     requestedToVersion: input.toVersion,
     regenerate,
-    addIfMissing,
+    addIfMissing: deduplicatedAddIfMissing,
     patch,
     conflicts,
     willNotTouch: buildWillNotTouchPaths(),

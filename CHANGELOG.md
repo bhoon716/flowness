@@ -25,6 +25,18 @@ All notable changes to Flowness are recorded here.
 ### Security
 - None.
 
+## [0.2.3] - 2026-06-21
+
+### Fixed
+- Add missing rules and workflows files (e.g. `git.md`) to the upgrade plan if they are not present in the workspace, avoiding validation failures after upgrades.
+
+## [0.2.2] - 2026-06-21
+
+### Fixed
+- Resolve target version correctly using the installed packages dynamic version instead of hardcoding 0.1.5.
+- Deduplicate duplicate entries in upgrade plans.
+- Add `--version` and `-v` options to print the package version.
+
 ## [0.2.1] - 2026-06-21
 
 ### Fixed

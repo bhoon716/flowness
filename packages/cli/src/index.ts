@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   analyzeRequest,
   type ClarificationQuestion,
@@ -85,6 +87,16 @@ import {
   createWorkflowStepContext,
 } from "@flowness-labs/workflow-engine";
 import { runUpgradeCommand } from "./upgrade.js";
+
+function getPackageVersion(): string {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    return pkg.version;
+  } catch {
+    return "0.2.2";
+  }
+}
 
 export interface CliResult {
   readonly exitCode: 0 | 1;
@@ -245,6 +257,10 @@ export interface ParsedConfigGateCommand {
   readonly instruction: string;
 }
 
+export interface ParsedVersionCommand {
+  readonly kind: "version";
+}
+
 export interface ParsedCommandHelp {
   readonly kind: "help";
 }
@@ -279,6 +295,7 @@ export type ParsedCommand =
   | ParsedValidateCommand
   | ParsedUpgradeCommand
   | ParsedConfigGateCommand
+  | ParsedVersionCommand
   | ParsedCommandHelp
   | ParsedUnsupportedCommand;
 
@@ -1857,6 +1874,10 @@ export function parseCommand(argv: readonly string[]): ParsedCommand {
 
   if (!command || command === "--help" || command === "-h") {
     return { kind: "help" };
+  }
+
+  if (command === "--version" || command === "-v") {
+    return { kind: "version" };
   }
 
   switch (command) {
@@ -4947,6 +4968,13 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
       return {
         exitCode: 0,
         output: usage(),
+      };
+    }
+
+    if (parsed.kind === "version") {
+      return {
+        exitCode: 0,
+        output: getPackageVersion(),
       };
     }
 
