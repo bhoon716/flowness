@@ -14,7 +14,7 @@
     "dist"
   ],
   "dependencies": {
-    "@flowness-labs/core": "^0.1.2"
+    "@flowness-labs/core": "^0.2.0"
   },
   "scripts": {
     "build": "tsc -b",

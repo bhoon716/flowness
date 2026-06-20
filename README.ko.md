@@ -7,114 +7,94 @@
 </div>
 
 <p align="center">
-  <strong>이슈 기반 AI 개발 운영체제 (Issue-driven AI Development Operating System)</strong>
+  <a href="README.md">English</a> | <a href="README.ko.md">한국어</a>
 </p>
 
----
+> 요청, 워크플로우, 증거 및 탐색을 일관되게 정렬하는 이슈 기반 AI 개발.
 
-## Flowness란 무엇인가요?
+## 한눈에 보기
 
-현재 대부분의 AI 코딩 환경은 심각한 한계를 가지고 있습니다. AI가 어떤 과정을 거쳤는지 기록을 남기지 않고, 정해진 프로세스를 생략하며, 중요한 의사결정 맥락이 순식간에 사라집니다. **Flowness**는 단순한 AI 코드 생성 도구가 아닙니다. AI 에이전트가 조직의 개발 프로세스와 규칙을 강제적으로 따르도록 통제하는 **운영체제(OS)**입니다.
+| 영역 | 링크 | 용도 |
+| --- | --- | --- |
+| GitHub README | 이 파일 | 저장소 개요 |
+| npm 패키지 | [@flowness-labs/core](https://www.npmjs.com/package/@flowness-labs/core) | 패키지 페이지 |
+| CLI 문서 | [`packages/cli/README.md`](packages/cli/README.md) | npm 명령 참조 |
+| 릴리스 노트 | [`docs/releases/`](docs/releases/) | 버전별 변경 내역 |
 
-모든 사용자 요청은 정식 **이슈(Issue)**가 되며, 모든 단계는 불변의 **증거(Evidence)**를 남기고, 이 모든 과정은 누적만 가능한(Append-only) 로그 모델을 통해 기록됩니다.
+## Flowness란?
 
----
+Flowness는 요청을 이슈로 라우팅하고, 명시적인 워크플로우를 통해 실행하며, 증거와 로그를 append-only(추가 전용) 형식으로 보존하는 개발 운영체제입니다. 단순히 코드를 빠르게 수정하는 것보다 개발 기록을 재현 가능하게 유지하는 것에 초점을 맞춥니다.
 
-## 핵심 철학
-
-- 🎯 **모든 요청은 이슈가 됩니다**: 사용자의 요구사항은 분석과 설계 단계를 거치기 위해 이슈 상태로 관리됩니다.
-- 📜 **누적 전용 로그 (Append-only)**: 에이전트의 모든 행동은 타임스탬프와 함께 연대기적으로 기록되며, 절대 삭제되거나 수정될 수 없습니다.
-- ⚙️ **강제 워크플로우**: AI 에이전트는 사용자가 정의한 실행 경로(Workflow) 내에서만 엄격하게 행동합니다.
-- 🔍 **주장보다 증거**: "테스트를 통과했다"는 AI의 말만으로는 부족합니다. 통과 결과물이나 실행 로그 등의 검증 페이로드를 직접 제출해야 합니다.
-- 🧠 **결정 기록 보존**: 설계 도중 발생한 모든 핵심 의사결정은 RFC 형태의 템플릿 문서로 보존됩니다.
-
----
-
-## 프로젝트 구조
-
-Flowness는 모듈화된 패키지로 분할된 모노레포(Monorepo) 워크스페이스입니다.
-
-- [`@flowness-labs/cli`](file:///Users/bhoon/Project/flowness/packages/cli): CLI 진입점 및 에이전트 오케스트레이션.
-- [`@flowness-labs/core`](file:///Users/bhoon/Project/flowness/packages/core): 공통 타입, 설정 파서 및 로컬 스캐폴딩 초기화.
-- [`@flowness-labs/workflow-engine`](file:///Users/bhoon/Project/flowness/packages/workflow-engine): 코드로 정의된 결정론적 워크플로우 엔진.
-- [`@flowness-labs/issue-system`](file:///Users/bhoon/Project/flowness/packages/issue-system): 이슈 선택 및 상태 관리.
-- [`@flowness-labs/log-system`](file:///Users/bhoon/Project/flowness/packages/log-system): Append-only 로그 수집기.
-- [`@flowness-labs/decision-system`](file:///Users/bhoon/Project/flowness/packages/decision-system): 의사결정 문서(Decision) 빌더.
-- [`@flowness-labs/evidence-system`](file:///Users/bhoon/Project/flowness/packages/evidence-system): 실행 도구 검증기 및 파서.
-- [`@flowness-labs/review-system`](file:///Users/bhoon/Project/flowness/packages/review-system): 다중 에이전트 리뷰 수집기.
-- [`@flowness-labs/config-system`](file:///Users/bhoon/Project/flowness/packages/config-system): 프로젝트 설정 및 오버라이드 시스템.
-- [`@flowness-labs/templates`](file:///Users/bhoon/Project/flowness/packages/templates): 사용자 프로젝트 초기화 시 제공되는 템플릿 레지스트리.
-
----
-
-## 설치 및 시작하기
-
-npm을 사용하여 전역으로 CLI를 설치할 수 있습니다:
+## CLI 설치
 
 ```bash
 npm install -g @flowness-labs/cli
 ```
 
-또는 `npx`를 사용하여 새 프로젝트를 즉시 초기화할 수 있습니다:
+또는 `npx`로 새로운 워크스페이스를 시작하세요:
 
 ```bash
-npx @flowness-labs/cli init ./my-new-project
+npx @flowness-labs/cli init ./my-project
 ```
 
-### 개발 환경 설정
-
-로컬에서 모노레포를 빌드하고 테스트하려면 다음 명령을 사용하세요:
+## 워크스페이스 시작하기
 
 ```bash
-# 의존성 설치
-npm install
-
-# 워크스페이스 내 모든 패키지 빌드
-npm run build
-
-# 단위 및 통합 테스트 실행
-npm test
-
-# 로컬 CLI 테스트용 심볼릭 링크 생성
-npm run link:cli
+flowness init ./my-project
+cd ./my-project
+flowness run "사용자 인증 기능 추가"
+flowness status --issue ISSUE-001-AUTH
 ```
 
----
+초기화 직후에는 다음 파일들을 먼저 확인하세요:
 
-## 주요 CLI 명령어
+- `.flowness/navigation.md`
+- `.flowness/context-index.json`
+- `.flowness/commands.json`
 
-초기화된 Flowness 프로젝트 내에서 아래 명령을 사용하여 AI 작업을 트리거합니다:
+## 주요 기능 (What It Does)
 
-```bash
-# 새로운 기능 개발 요청
-flowness request:create "사용자 로그인 기능 구현해줘"
+- 명시적인 워크플로우를 통해 요청을 이슈로 라우팅합니다.
+- `flowness locate`를 사용하여 탐색 범위를 제한합니다.
+- `flowness test --summary`, `flowness audit --changed`, `flowness upgrade --dry-run`, `flowness upgrade --apply`를 제공합니다.
+- `flowness review:run`을 통해 코드 리뷰 흐름을 분리합니다.
+- `flowness step`, `flowness workflow:step`, `flowness status`를 통해 진행 상황을 명시적으로 관리합니다.
+- 증거, 로그, 리뷰 결과를 append-only(추가 전용) 형식으로 보존합니다.
 
-# 이슈 직접 수동 등록
-flowness issue:create --title "Redis 캐싱 추가" --type feature
+## 핵심 명령
 
-# 워크스페이스 내 지정한 이슈의 워크플로우 단계 승인 및 실행
-flowness workflow:step --issue ISSUE-001-SIGNIN --approve
+- `flowness init`
+- `flowness run`
+- `flowness request:create`
+- `flowness issue:create`
+- `flowness step`
+- `flowness workflow:step`
+- `flowness status`
+- `flowness review:run`
+- `flowness locate`
+- `flowness test --summary`
+- `flowness audit --changed`
+- `flowness upgrade --dry-run`
+- `flowness upgrade --apply`
+- `flowness validate`
 
-# 다중 에이전트 코드 리뷰 실행
-flowness review:run --issue ISSUE-001-SIGNIN
-```
+## 가벼운 네비게이션 (Lightweight Navigation)
 
----
+- 워크스페이스를 스캔하기 전에 `.flowness/navigation.md`를 먼저 읽으세요.
+- `.flowness/context-index.json`을 사용하여 유용한 최소 파일 집합을 찾으세요.
+- 정확한 명령 문자열을 확인하려면 `.flowness/commands.json`을 사용하세요.
+- 광범위한 저장소 스캔 대신 `flowness locate "<task description>"`를 우선 사용하세요.
 
-## 아키텍처 레이아웃
+## 기존 프로젝트 업그레이드
 
-```
-.agent/                  ← 로컬 프로젝트에 생성되는 AI OS 디렉토리
-├── config/              ← 환경설정 규칙 및 사양
-├── issues/              ← 작업 중인 이슈 및 의사결정 기록 문서
-├── logs/                ← Append-only 실행 로그
-├── workflows/           ← 실행 가능한 워크플로우 파일들
-├── rules/               ← 에이전트 가이드라인
-└── templates/           ← 템플릿 파일들
-```
+> 기존 프로젝트는 먼저 `flowness upgrade --dry-run`을 실행한 다음, 승인된 계획을 `flowness upgrade --apply`로 적용하세요.
+> 기존 프로젝트에서 `flowness init`을 다시 실행하지 마세요.
 
----
+## 릴리스 문서 (Release Documentation)
 
-## 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다.
+- 변경 로그: [`CHANGELOG.md`](CHANGELOG.md)
+- 릴리스 체크리스트: [`docs/release-checklist.md`](docs/release-checklist.md)
+- 릴리스 노트 템플릿: [`docs/templates/release-notes.md`](docs/templates/release-notes.md)
+- 릴리스 노트: [`docs/releases/`](docs/releases/)
+- 릴리스를 진행하기 전에 `npm run release:check`를 실행하세요.
+- 문서 검증만 필요한 경우에는 `npm run release:docs-check`를 실행하세요.

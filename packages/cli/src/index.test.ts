@@ -282,7 +282,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.1.5");
+  assert.equal(manifest.version, "0.2.0");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
   assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");

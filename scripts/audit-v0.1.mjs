@@ -137,7 +137,7 @@ async function main() {
     }
 
     const manifestJson = JSON.parse(readFileSync(join(sandboxRoot, ".flowness/harness-manifest.json"), "utf8"));
-    if (manifestJson.version !== "0.1.5") {
+    if (manifestJson.version !== "0.2.0") {
       throw new Error("harness manifest version is incorrect.");
     }
     if (manifestJson.contextFiles.findings !== ".flowness/findings/README.md") {

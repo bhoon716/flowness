@@ -18,14 +18,14 @@
     "bin.js"
   ],
   "dependencies": {
-    "@flowness-labs/config-system": "^0.1.2",
-    "@flowness-labs/core": "^0.1.2",
-    "@flowness-labs/decision-system": "^0.1.2",
-    "@flowness-labs/evidence-system": "^0.1.2",
-    "@flowness-labs/issue-system": "^0.1.2",
-    "@flowness-labs/log-system": "^0.1.2",
-    "@flowness-labs/review-system": "^0.1.2",
-    "@flowness-labs/workflow-engine": "^0.1.2"
+    "@flowness-labs/config-system": "^0.2.0",
+    "@flowness-labs/core": "^0.2.0",
+    "@flowness-labs/decision-system": "^0.2.0",
+    "@flowness-labs/evidence-system": "^0.2.0",
+    "@flowness-labs/issue-system": "^0.2.0",
+    "@flowness-labs/log-system": "^0.2.0",
+    "@flowness-labs/review-system": "^0.2.0",
+    "@flowness-labs/workflow-engine": "^0.2.0"
   },
   "scripts": {
     "build": "tsc -b",
