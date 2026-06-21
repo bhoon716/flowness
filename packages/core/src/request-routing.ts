@@ -8,7 +8,9 @@ export type RequestCategory =
   | "multi_issue_project"
   | "review_task"
   | "bugfix_task"
-  | "refactor_task";
+  | "refactor_task"
+  | "performance_improvement_task"
+  | "rule_change_candidate";
 
 export type RequestExecutionMode =
   | "answer"
@@ -16,6 +18,7 @@ export type RequestExecutionMode =
   | "plan_mvp"
   | "decompose_project"
   | "update_rule"
+  | "request_rule_approval"
   | "run_review"
   | "unknown";
 
@@ -27,6 +30,7 @@ export type RequestIntent =
   | "review"
   | "bugfix"
   | "refactor"
+  | "performance_improvement"
   | "rule_update"
   | "unknown";
 
@@ -43,6 +47,13 @@ export interface ReviewTargetSummary {
   readonly label: string;
   readonly slug: string;
   readonly files: readonly string[];
+}
+
+interface RuleChangeSuggestion {
+  readonly ruleId: string;
+  readonly existingRule: string;
+  readonly proposedRule: string;
+  readonly reason: string;
 }
 
 export interface RequestIssuePlanBundle {
@@ -85,6 +96,11 @@ export interface RequestAnalysis {
   readonly needsClarification: boolean;
   readonly clarificationQuestions: readonly ClarificationQuestion[];
   readonly issuePlan?: RequestIssuePlanBundle;
+  readonly ruleChangeCandidate: boolean;
+  readonly ruleChangeRuleId?: string;
+  readonly existingRule?: string;
+  readonly proposedRule?: string;
+  readonly requiresUserApproval: boolean;
 }
 
 const casualMatchers: readonly RegExp[] = [
@@ -147,6 +163,114 @@ const explicitRefactorMatchers: readonly RegExp[] = [
 const genericImprovementMatchers: readonly RegExp[] = [
   /\b(improve|improvement|enhance|polish|tighten|streamline)\b/i,
   /(개선해줘|개선|다듬어줘|향상해줘)/i,
+];
+
+const performanceImprovementMatchers: readonly RegExp[] = [
+  /\b(performance|benchmark|latency|throughput|optimi[sz]e|speed|slow|faster|memory|cpu|profiling|bottleneck)\b/i,
+  /(성능|벤치마크|지연|레이턴시|처리량|최적화|속도|느리|메모리|CPU|프로파일링|병목|전후 비교|기준선|베이스라인)/i,
+];
+
+const ruleChangeContextMatchers: readonly RegExp[] = [
+  /\b(always|never|must|should|prefer|default|policy|rule|guideline|standard|convention|style|pattern|keep|use|avoid|from now on|going forward|do not|don't)\b/i,
+  /(앞으로|항상|절대|반드시|정책|규칙|가이드|관례|표준|기본적으로|선호|유지|피하고|하지 마|해야|하자|하도록)/i,
+  /\b(feature[-\s]?based|feature[-\s]?slice|feature[-\s]?first|feature[-\s]?driven|component[-\s]?based|app router|server component|server action|strict typing|type safety|baseline|before\s*\/\s*after|before and after|compare(?:ison)?|measurement?|measure(?:ment)?|test first|security first)\b/i,
+];
+
+interface RuleChangePatternSpec extends RuleChangeSuggestion {
+  readonly patterns: readonly RegExp[];
+}
+
+const ruleChangePatternSpecs: readonly RuleChangePatternSpec[] = [
+  {
+    ruleId: "performance-improvement",
+    existingRule: "Performance improvements should capture a baseline, a follow-up measurement, and the comparison between them.",
+    proposedRule: "When a task asks for a performance improvement, record the baseline first, measure the change after the fix, compare before and after, and note any measurement limitations.",
+    reason: "The request changes the durable performance workflow instead of asking for one isolated optimization.",
+    patterns: [
+      /\b(performance|benchmark|latency|throughput|optimi[sz]e|speed|slow|faster|memory|cpu|profiling|bottleneck)\b/i,
+      /(성능|벤치마크|지연|레이턴시|처리량|최적화|속도|느리|메모리|CPU|프로파일링|병목|전후 비교|기준선|베이스라인)/i,
+      /(baseline|before\s*\/\s*after|before and after|measure(?:ment)?|comparison|compare)/i,
+    ],
+  },
+  {
+    ruleId: "evidence-policy",
+    existingRule: "Evidence rules should keep proof concrete and append-only.",
+    proposedRule: "When the request changes how work is proven, capture the exact commands or artifacts, keep the evidence concise, and record limitations clearly.",
+    reason: "The request is about verification discipline rather than a one-off task.",
+    patterns: [
+      /\b(evidence|proof|verify|verification|test result|baseline|comparison|before\s*\/\s*after)\b/i,
+      /(증거|검증|결과|기준선|전후 비교|비교 결과)/i,
+    ],
+  },
+  {
+    ruleId: "clarification-policy",
+    existingRule: "Clarification rules define when to ask for missing details before starting work.",
+    proposedRule: "Ask only for the missing information that blocks progress, and keep clarification questions focused on the decision points.",
+    reason: "The request changes when the agent should ask questions before moving forward.",
+    patterns: [
+      /\b(clarify|clarification|question|questions|ask|missing details|more detail)\b/i,
+      /(질문|확인|명확|명확화|물어봐|추가 정보)/i,
+    ],
+  },
+  {
+    ruleId: "request-analysis",
+    existingRule: "Request analysis should classify the request before it turns into work.",
+    proposedRule: "Classify requests before creating issues, and only create or update durable rules when the request clearly changes future behavior.",
+    reason: "The request changes request-routing behavior rather than one piece of work.",
+    patterns: [
+      /\b(request analysis|issue routing|workflow routing|classify|classification|request create|issue create)\b/i,
+      /(요청\s*분석|이슈\s*생성|워크플로우\s*분류|분류|라우팅)/i,
+    ],
+  },
+  {
+    ruleId: "commit-policy",
+    existingRule: "Commit policy should keep commits explicit, approved, and evidence-backed.",
+    proposedRule: "Stage only the intended files, require approval before commit, and keep the commit gate tied to the evidence review.",
+    reason: "The request changes a durable commit rule rather than the current task.",
+    patterns: [
+      /\b(commit|git add|stage|push|rebase|merge|worktree)\b/i,
+      /(커밋|스테이징|푸시|리베이스|머지|워크트리)/i,
+    ],
+  },
+  {
+    ruleId: "tech/react",
+    existingRule: "React guidance keeps components small, feature-focused, and easy to test.",
+    proposedRule: "Keep React work feature-based, localize state, and prefer small components and hooks that follow the project slice.",
+    reason: "The request changes a durable React convention.",
+    patterns: [
+      /\b(react|feature-based|feature slice|component-based|hooks?)\b/i,
+      /(React|feature-based|feature slice|컴포넌트|훅)/i,
+    ],
+  },
+  {
+    ruleId: "tech/nextjs",
+    existingRule: "Next.js guidance prefers the App Router, server components, and explicit client boundaries.",
+    proposedRule: "Keep Next.js work aligned to the App Router and use server components or client boundaries intentionally.",
+    reason: "The request changes a durable Next.js convention.",
+    patterns: [
+      /\b(next\.?js|app router|server component|server action)\b/i,
+      /(Next\.?js|앱\s*라우터|서버\s*컴포넌트|서버\s*액션)/i,
+    ],
+  },
+  {
+    ruleId: "tech/typescript",
+    existingRule: "TypeScript guidance treats types as boundary protection, not as decoration.",
+    proposedRule: "Use TypeScript types to clarify boundaries and keep the project strict enough to catch regressions early.",
+    reason: "The request changes a durable TypeScript convention.",
+    patterns: [
+      /\b(typescript|strict typing|type safety|satisfies)\b/i,
+      /(타입스크립트|엄격한\s*타이핑|타입\s*안전)/i,
+    ],
+  },
+  {
+    ruleId: "project-overrides",
+    existingRule: "Project overrides capture durable exceptions that are stronger than the defaults.",
+    proposedRule: "If the project needs a future-facing exception, record it in project-overrides instead of a one-off note.",
+    reason: "The request sets a project-wide exception or convention.",
+    patterns: [
+      /(always|never|from now on|going forward|앞으로|항상|매번|절대|기본적으로|규칙|policy|rule)/i,
+    ],
+  },
 ];
 
 const codeTargetMatchers: readonly RegExp[] = [
@@ -387,6 +511,48 @@ function detectReviewTarget(request: string): ReviewTargetSummary | null {
   }
 
   return null;
+}
+
+function detectRuleChangeSuggestion(request: string): RuleChangeSuggestion | null {
+  const normalized = normalizeRequest(request);
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  if (!matchesAny(normalized, ruleChangeContextMatchers)) {
+    return null;
+  }
+
+  const candidates = ruleChangePatternSpecs
+    .map((spec, order) => ({
+      spec,
+      order,
+      score: spec.patterns.reduce((accumulator, pattern) => accumulator + (pattern.test(normalized) ? 1 : 0), 0),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return right.score - left.score;
+      }
+
+      return left.order - right.order;
+    });
+
+  const best = candidates[0];
+  if (best === undefined) {
+    return null;
+  }
+
+  return {
+    ruleId: best.spec.ruleId,
+    existingRule: best.spec.existingRule,
+    proposedRule: best.spec.proposedRule,
+    reason: best.spec.reason,
+  };
+}
+
+function isPerformanceImprovementTask(request: string): boolean {
+  return matchesAny(request, performanceImprovementMatchers);
 }
 
 function buildReviewTargetClarificationQuestions(request: string): readonly ClarificationQuestion[] {
@@ -959,6 +1125,10 @@ function categoryToIssueType(category: RequestCategory, request: string): IssueT
       return "mvp";
     case "multi_issue_project":
       return "planning";
+    case "performance_improvement_task":
+      return "refactor";
+    case "rule_change_candidate":
+      return "decision";
     case "single_development_task":
       if (/\b(document|docs?|readme|documentation)\b/i.test(request) || /(문서|README|가이드|설명서)/i.test(request)) {
         return "documentation";
@@ -988,6 +1158,10 @@ function categoryToWorkflowId(category: RequestCategory): string | undefined {
       return "bug-fix";
     case "refactor_task":
       return "refactoring";
+    case "performance_improvement_task":
+      return "refactoring";
+    case "rule_change_candidate":
+      return undefined;
   }
 }
 
@@ -1338,6 +1512,106 @@ function buildFeatureClarificationQuestions(request: string): readonly Clarifica
   ];
 }
 
+function buildPerformanceClarificationQuestions(request: string): readonly ClarificationQuestion[] {
+  const summary = toIssueSummary(request);
+
+  return [
+    makeClarificationQuestion({
+      question: `What performance problem or bottleneck should we improve in ${summary}?`,
+      options: [
+        makeClarificationOption(
+          "Option A",
+          "One known bottleneck with a clear user-facing impact.",
+          [
+            "Keeps measurement and implementation focused.",
+            "Makes the before/after comparison easier.",
+          ],
+          [
+            "May miss adjacent bottlenecks.",
+            "Can be too narrow if the request is really a broader optimization pass.",
+          ],
+        ),
+        makeClarificationOption(
+          "Option B",
+          "A broader performance pass covering the main hot path and nearby costs.",
+          [
+            "Covers more of the bottleneck surface area.",
+            "Helpful when the slowdown spans multiple layers.",
+          ],
+          [
+            "Needs more measurement and more evidence.",
+            "Adds more optimization decisions.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Tell me which user flow, endpoint, job, or screen feels slow and what outcome should improve.",
+    }),
+    makeClarificationQuestion({
+      question: "What baseline, after-change result, and metric should we use to prove the improvement?",
+      options: [
+        makeClarificationOption(
+          "Option A",
+          "A single metric with a baseline and a follow-up measurement.",
+          [
+            "Keeps the measurement simple and repeatable.",
+            "Easy to compare before and after.",
+          ],
+          [
+            "Can miss secondary effects.",
+            "May be too coarse if the bottleneck is complex.",
+          ],
+        ),
+        makeClarificationOption(
+          "Option B",
+          "Multiple metrics, such as latency, throughput, and memory.",
+          [
+            "Catches trade-offs that one metric might hide.",
+            "Useful for more complex performance work.",
+          ],
+          [
+            "Takes more time to measure.",
+            "Adds more room for ambiguity.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Name the metric that matters most and tell me what baseline we should capture before changes begin.",
+    }),
+    makeClarificationQuestion({
+      question: "What measurement constraints, environment differences, or limitations should I record if perfect benchmarking is not feasible?",
+      options: [
+        makeClarificationOption(
+          "Option A",
+          "Use the current environment and note the limitation clearly.",
+          [
+            "Fastest way to get a useful baseline.",
+            "Good when a dedicated benchmark environment is not available.",
+          ],
+          [
+            "Less precise than a controlled benchmark.",
+            "May not be directly comparable across machines.",
+          ],
+        ),
+        makeClarificationOption(
+          "Option B",
+          "Wait for a stable benchmark setup before making changes.",
+          [
+            "Best when the measurement needs to be rigorous.",
+            "Reduces the chance of misleading results.",
+          ],
+          [
+            "Slows the work down.",
+            "May not be practical for a small optimization.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Tell me whether we need a strict benchmark environment or whether a documented limitation is acceptable.",
+    }),
+  ];
+}
+
 function buildGenericClarificationQuestions(category: RequestCategory, request: string): readonly ClarificationQuestion[] {
   const summary = toIssueSummary(request);
 
@@ -1346,6 +1620,10 @@ function buildGenericClarificationQuestions(category: RequestCategory, request: 
   switch (category) {
     case "review_task":
       return buildReviewTargetClarificationQuestions(request);
+    case "performance_improvement_task":
+      return buildPerformanceClarificationQuestions(request);
+    case "rule_change_candidate":
+      return [];
     case "bugfix_task":
       return [
         makeQuestion({
@@ -1621,6 +1899,14 @@ function buildEvidenceRequirements(category: RequestCategory): readonly string[]
         "Before/after diff",
         "Validation output",
       ];
+    case "performance_improvement_task":
+      return [
+        "Baseline measurement",
+        "After-change measurement",
+        "Before/after comparison",
+      ];
+    case "rule_change_candidate":
+      return [];
     case "single_development_task":
       return [
         "Implementation diff",
@@ -1658,6 +1944,17 @@ function buildAcceptanceCriteria(category: RequestCategory, request: string, tit
         "The targeted code path is simplified.",
         "Behavior remains stable after the refactor.",
       ];
+    case "performance_improvement_task":
+      return [
+        "A baseline is recorded before optimization starts.",
+        "The improvement is measured again after the change.",
+        "The before/after comparison and any limitations are documented.",
+      ];
+    case "rule_change_candidate":
+      return [
+        "A durable rule change is proposed instead of a one-off task.",
+        "User approval is recorded before any rule file changes are written.",
+      ];
     case "single_development_task":
       return [
         `The requested change for "${title}" is implemented.`,
@@ -1682,6 +1979,10 @@ function buildIssueGoal(category: RequestCategory, request: string, title: strin
       return `Fix ${summary} and verify the regression is closed.`;
     case "refactor_task":
       return `Refactor ${summary} without changing behavior.`;
+    case "performance_improvement_task":
+      return `Improve the performance of ${summary} with measurable before/after evidence.`;
+    case "rule_change_candidate":
+      return `Confirm the durable rule change requested in ${summary}.`;
     case "single_development_task":
       return `Deliver ${summary} as a single workflow-backed task.`;
   }
@@ -1716,7 +2017,7 @@ function buildIssuePlan(
   request: string,
   title: string,
 ): RequestIssuePlanBundle | undefined {
-  if (category === "casual_or_question") {
+  if (category === "casual_or_question" || category === "rule_change_candidate") {
     return undefined;
   }
 
@@ -1833,6 +2134,14 @@ function calculateRequestConfidence(category: RequestCategory, request: string, 
     return roundConfidence(hasCodeTarget(request) ? base : base - 0.08);
   }
 
+  if (category === "performance_improvement_task") {
+    return roundConfidence(isPerformanceImprovementTask(request) ? 0.9 : 0.74);
+  }
+
+  if (category === "rule_change_candidate") {
+    return roundConfidence(0.88);
+  }
+
   if (category === "mvp_or_product_planning") {
     return roundConfidence(0.84 + (issuePlan === undefined ? -0.04 : 0));
   }
@@ -1876,6 +2185,10 @@ function determineExecutionMode(category: RequestCategory, request: string, conf
     return "answer";
   }
 
+  if (category === "rule_change_candidate") {
+    return "request_rule_approval";
+  }
+
   if (category === "review_task") {
     return "run_review";
   }
@@ -1893,6 +2206,7 @@ function determineExecutionMode(category: RequestCategory, request: string, conf
       return "decompose_project";
     case "bugfix_task":
     case "refactor_task":
+    case "performance_improvement_task":
       return "create_issue";
   }
 }
@@ -1907,6 +2221,8 @@ function determineIntent(category: RequestCategory, executionMode: RequestExecut
           return "bugfix";
         case "refactor_task":
           return "refactor";
+        case "performance_improvement_task":
+          return "performance_improvement";
         case "review_task":
           return "review";
         default:
@@ -1919,6 +2235,8 @@ function determineIntent(category: RequestCategory, executionMode: RequestExecut
     case "run_review":
       return "review";
     case "update_rule":
+      return "rule_update";
+    case "request_rule_approval":
       return "rule_update";
     case "unknown":
       return "unknown";
@@ -1933,6 +2251,7 @@ function determineIssueCount(
     case "answer":
     case "unknown":
     case "update_rule":
+    case "request_rule_approval":
       return 0;
     case "decompose_project":
       return 1 + (issuePlan?.childIssues.length ?? 0);
@@ -1966,6 +2285,8 @@ function determineNextAction(executionMode: RequestExecutionMode): string {
       return "clarify_and_decompose";
     case "update_rule":
       return "update_rule";
+    case "request_rule_approval":
+      return "request_rule_approval";
     case "run_review":
       return "run_review";
     case "unknown":
@@ -2042,6 +2363,7 @@ function buildUnknownClarificationQuestions(request: string): readonly Clarifica
 
 export function analyzeRequest(request: string): RequestAnalysis {
   const normalizedRequest = normalizeRequest(request);
+  const ruleChangeSuggestion = detectRuleChangeSuggestion(normalizedRequest);
 
   if (normalizedRequest.length === 0) {
     return {
@@ -2061,6 +2383,34 @@ export function analyzeRequest(request: string): RequestAnalysis {
       reason: "This is a casual message or question that does not need an issue.",
       needsClarification: false,
       clarificationQuestions: [],
+      ruleChangeCandidate: false,
+      requiresUserApproval: false,
+    };
+  }
+
+  if (ruleChangeSuggestion !== null) {
+    return {
+      request: normalizedRequest,
+      normalizedRequest,
+      category: "rule_change_candidate",
+      intent: "rule_update",
+      executionMode: "request_rule_approval",
+      issueCount: 0,
+      confidence: calculateRequestConfidence("rule_change_candidate", normalizedRequest, undefined),
+      safeToProceed: false,
+      nextAction: determineNextAction("request_rule_approval"),
+      requiresClarification: false,
+      requiresIssue: false,
+      suggestedTitle: toSuggestedTitle(normalizedRequest),
+      intentSlug: `rule-update-${slugifyReadable(ruleChangeSuggestion.ruleId)}`,
+      reason: ruleChangeSuggestion.reason,
+      needsClarification: false,
+      clarificationQuestions: [],
+      ruleChangeCandidate: true,
+      ruleChangeRuleId: ruleChangeSuggestion.ruleId,
+      existingRule: ruleChangeSuggestion.existingRule,
+      proposedRule: ruleChangeSuggestion.proposedRule,
+      requiresUserApproval: true,
     };
   }
 
@@ -2085,9 +2435,13 @@ export function analyzeRequest(request: string): RequestAnalysis {
       reason: "This is a casual message or question that does not need an issue.",
       needsClarification: false,
       clarificationQuestions: [],
+      ruleChangeCandidate: false,
+      requiresUserApproval: false,
     };
   } else if (isBugfixTask(normalizedRequest)) {
     category = "bugfix_task";
+  } else if (isPerformanceImprovementTask(normalizedRequest)) {
+    category = "performance_improvement_task";
   } else if (isRefactorTask(normalizedRequest)) {
     category = "refactor_task";
   } else if (isProductPlanningTask(normalizedRequest)) {
@@ -2132,6 +2486,8 @@ export function analyzeRequest(request: string): RequestAnalysis {
       : `This is a review request for ${reviewTarget.label} and should be routed through the review workflow.`,
     bugfix_task: "This is a bug fix request and should be routed through the bug fix workflow.",
     refactor_task: "This is a refactor request and should be routed through the refactoring workflow.",
+    performance_improvement_task: "This is a performance improvement request and should be routed through the refactoring workflow with measurement evidence.",
+    rule_change_candidate: "This request changes a durable rule or project convention and requires explicit approval before any file update.",
   };
 
   const reason = executionMode === "unknown"
@@ -2159,6 +2515,8 @@ export function analyzeRequest(request: string): RequestAnalysis {
     needsClarification: clarificationQuestions.length > 0,
     clarificationQuestions,
     ...(issuePlan === undefined ? {} : { issuePlan }),
+    ruleChangeCandidate: false,
+    requiresUserApproval: false,
   };
 }
 

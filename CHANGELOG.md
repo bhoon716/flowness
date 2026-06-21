@@ -25,10 +25,35 @@ All notable changes to Flowness are recorded here.
 ### Security
 - None.
 
-## [0.2.3] - 2026-06-21
+## [0.2.4] - 2026-06-21
+
+### Added
+- `docs/troubleshooting/performance-improvements.md` for performance measurement baseline, comparison, and troubleshooting guidance.
+
+### Changed
+- The normal workspace flow now emphasizes `flowness init` once, then natural-language work with the coding agent.
+- Generated rule files are current-state documents, and rule history is centralized in `.flowness/rules/rule-update-log.md`.
+- `rule:create` and `rule:update` now prefer updating an existing matching rule instead of creating a duplicate file.
+- Rule-change candidates now surface an approval prompt instead of automatically mutating rule files.
 
 ### Fixed
 - Add missing rules and workflows files (e.g. `git.md`) to the upgrade plan if they are not present in the workspace, avoiding validation failures after upgrades.
+- Remove the old per-rule append-only update blocks and write history only to `.flowness/rules/rule-update-log.md`.
+
+## [0.2.3] - 2026-06-21
+
+### Added
+- `docs/troubleshooting/performance-improvements.md` for performance measurement baseline, comparison, and troubleshooting guidance.
+
+### Changed
+- The normal workspace flow now emphasizes `flowness init` once, then natural-language work with the coding agent.
+- Generated rule files are current-state documents, and rule history is centralized in `.flowness/rules/rule-update-log.md`.
+- `rule:create` and `rule:update` now prefer updating an existing matching rule instead of creating a duplicate file.
+- Rule-change candidates now surface an approval prompt instead of automatically mutating rule files.
+
+### Fixed
+- Add missing rules and workflows files (e.g. `git.md`) to the upgrade plan if they are not present in the workspace, avoiding validation failures after upgrades.
+- Remove the old per-rule append-only update blocks and write history only to `.flowness/rules/rule-update-log.md`.
 
 ## [0.2.2] - 2026-06-21
 

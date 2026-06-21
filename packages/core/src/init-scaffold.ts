@@ -810,6 +810,44 @@ function renderMarkdownLink(label: string, target: string): string {
   return `[${label}](${target})`;
 }
 
+interface RuleDocumentSpec {
+  readonly title: string;
+  readonly ruleId: string;
+  readonly scope: string;
+  readonly policy: readonly string[];
+  readonly examples: readonly string[];
+  readonly lastUpdated: string;
+  readonly notes?: readonly string[];
+}
+
+function renderRuleDocumentMarkdown(spec: RuleDocumentSpec): string {
+  return [
+    `# ${spec.title}`,
+    "",
+    `- Rule ID: ${spec.ruleId}`,
+    "",
+    "## Scope",
+    spec.scope,
+    "",
+    "## Policy",
+    ...spec.policy.map((line) => `- ${line}`),
+    "",
+    "## Examples",
+    ...spec.examples.map((line) => `- ${line}`),
+    "",
+    "## Last Updated",
+    `- ${spec.lastUpdated}`,
+    ...(spec.notes === undefined || spec.notes.length === 0
+      ? []
+      : [
+          "",
+          "## Notes",
+          ...spec.notes.map((line) => `- ${line}`),
+        ]),
+    "",
+  ].join("\n");
+}
+
 function stripFlownessPrefix(path: string): string {
   return path.startsWith(".flowness/")
     ? path.slice(".flowness/".length)
@@ -867,11 +905,12 @@ function deriveRelevantRuleFiles(analysis: ProjectAnalysis): readonly string[] {
     "workflow-routing.md",
     "definition-of-done.md",
     "evidence-policy.md",
+    "performance-improvement.md",
     "git.md",
     "commit-policy.md",
     "workflow-step-contract.md",
     "project-overrides.md",
-    "change-log.md",
+    "rule-update-log.md",
   ];
 
   return [
@@ -921,59 +960,10 @@ function renderTechRuleMarkdown(spec: TechRuleSpec, analysis: ProjectAnalysis): 
     "",
     "## Project-Specific Overrides",
     `- [Project overrides](../project-overrides.md)`,
-    `- [Rule change log](../change-log.md)`,
+    `- [Rule update log](../rule-update-log.md)`,
     "",
     "## Notes",
     spec.intro,
-    "",
-  ].join("\n");
-}
-
-function renderGitRuleMarkdown(analysis: ProjectAnalysis, title: string): string {
-  return [
-    `# ${title}`,
-    "",
-    `- Project: ${analysis.projectName}`,
-    "- Git repo detection: Resolve the repository from the changed files, not from the process cwd.",
-    "- Git repo detection: Probe each changed file path with `git -C <path> rev-parse --is-inside-work-tree`, `--show-toplevel`, and `--git-dir`.",
-    "- Auto-commit allowed: no",
-    "- Human approval required: yes",
-    "- Commit message style: conventional",
-    "- Conventional commits required: yes",
-    "- git add . forbidden: yes",
-    "- git commit -a forbidden: yes",
-    "- force push forbidden: yes",
-    "- rebase forbidden: yes",
-    "- reset --hard forbidden: yes",
-    "- merge forbidden: yes",
-    "- Nested repositories: disallow",
-    "- Submodules: disallow",
-    "- Worktrees: allow",
-    "- Do not commit automatically before workflow commit step.",
-    "- Do not commit before Evidence Review passes.",
-    "- Do not commit before required checks pass.",
-    "- Stage only the files that belong to the issue or workflow step.",
-    "- Never commit local-only files, raw logs, temporary outputs, or unrelated `.flowness/` artifacts by default.",
-    "- Never commit path: .flowness/issues/",
-    "- Never commit path: .flowness/logs/",
-    "- Never commit path: .flowness/state/",
-    "- Never commit path: .flowness/backups/",
-    "- Never commit path: .flowness/.flowness-cache/",
-    "- Never commit path: .flowness/findings/",
-    "- Never commit path: node_modules/",
-    "- Never commit path: .git/",
-    "- Never commit suffix: .log",
-    "- Never commit suffix: .out",
-    "- Never commit suffix: .err",
-    "- Never commit suffix: .tmp",
-    "- Never commit suffix: .temp",
-    "- Never commit suffix: .swp",
-    "- Never commit suffix: .bak",
-    "",
-    "## Notes",
-    "- Use `git add -- <files>` with an explicit file list only.",
-    "- Ask for human approval before the commit unless the project rule explicitly allows auto-commit.",
-    "- Keep commit messages concise and aligned with the issue title or goal.",
     "",
   ].join("\n");
 }
@@ -1032,7 +1022,7 @@ function renderNavigationMarkdown(
   return [
     "# Navigation",
     "",
-    "Read this file first, then use locate or the active issue before searching broadly.",
+    "Read this file first, then talk to the coding agent naturally. Use locate or the active issue when you need a compact file map before searching broadly.",
     "",
     "## Read First",
     ...readFirstLinks.map((link) => `- ${link}`),
@@ -1042,10 +1032,11 @@ function renderNavigationMarkdown(
     ...relevantRuleLinks.map((link) => `- ${link}`),
     "",
     "## File Location",
-    '- Use `flowness locate "<task description>"` to get read order, tests, and commands.',
+    '- Use `flowness locate "<task description>"` when the agent needs read order, tests, and commands.',
     `- Do not read closed issues, all logs, all workflows, all rules, or generated archives unless locate points there.`,
     "",
     "## Commands",
+    "- Treat these as agent-facing or manual escape hatches.",
     '- `flowness locate "<task description>"`',
     "- `flowness test --summary`",
     "- `flowness audit --changed`",
@@ -1067,7 +1058,7 @@ function renderActiveIssueMarkdown(
       "",
       "## Where To Start",
       `- Read ${renderMarkdownLink("navigation.md", "../navigation.md")} first.`,
-      '- Run `flowness locate "<task description>"` when you need file location guidance.',
+      '- Talk to the coding agent naturally, then run `flowness locate "<task description>"` when you need file location guidance.',
       "",
       "## Rules",
       ...relevantRules.slice(0, 6).map((rulePath) => {
@@ -1174,12 +1165,24 @@ async function collectDocumentationPaths(rootDir: string, rootFiles: readonly st
   }
 
   if (rootFiles.includes("docs") && await pathExists(join(rootDir, "docs"))) {
-    const docsEntries = await readdir(join(rootDir, "docs"), { withFileTypes: true });
-    for (const entry of docsEntries) {
-      if (entry.isFile() && entry.name.endsWith(".md")) {
-        discovered.add(`docs/${entry.name}`);
+    const visitDocs = async (directory: string, relativeDir = ""): Promise<void> => {
+      const docsEntries = await readdir(directory, { withFileTypes: true });
+      for (const entry of docsEntries) {
+        const relativePath = relativeDir.length === 0 ? entry.name : `${relativeDir}/${entry.name}`;
+        const absolutePath = join(directory, entry.name);
+
+        if (entry.isDirectory()) {
+          await visitDocs(absolutePath, relativePath);
+          continue;
+        }
+
+        if (entry.isFile() && entry.name.endsWith(".md")) {
+          discovered.add(`docs/${relativePath}`);
+        }
       }
-    }
+    };
+
+    await visitDocs(join(rootDir, "docs"));
   }
 
   return [...discovered].sort();
@@ -1218,10 +1221,10 @@ function renderWorkflowStepMarkdown(
   const previousStepLink = previousStep === null ? "none" : `[${previousStep.fileName}](./${previousStep.fileName})`;
   const nextStepLink = nextStep === null ? "none" : `[${nextStep.fileName}](./${nextStep.fileName})`;
   const requiredCommandUsage = [
-    '- `flowness run "<request>"` creates or routes a new request through the workflow.',
-    "- `flowness step --issue ISSUE-ID` advances exactly one workflow step.",
-    "- `flowness status --issue ISSUE-ID` checks the current state before and after transitions.",
-    "- `flowness evidence:add --issue ISSUE-ID ...` records evidence without editing JSON by hand.",
+    '- The coding agent may use `flowness run "<request>"` to create or route a request through the workflow.',
+    "- The coding agent may use `flowness step --issue ISSUE-ID` to advance exactly one workflow step.",
+    "- The coding agent may use `flowness status --issue ISSUE-ID` to check the current state before and after transitions.",
+    "- The coding agent may use `flowness evidence:add --issue ISSUE-ID ...` to record evidence without editing JSON by hand.",
   ];
 
   const requiredInputs = [
@@ -1543,6 +1546,7 @@ function renderWorkflowReadme(workflow: WorkflowSpec, analysis: ProjectAnalysis)
     "",
     "## Notes",
     `- Focus: ${workflow.focus}.`,
+    "- These step files guide the coding agent after `flowness init`; they are not the primary human interface.",
     "- Each step file is ordered and should be read from top to bottom.",
     "- Each step file includes frontmatter that the workflow loader can parse.",
     "- Each step file includes current-step metadata, navigation links, gate behavior, runner usage, and evidence requirements.",
@@ -1649,13 +1653,15 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     "<!-- FLOWNESS:BEGIN -->",
     "# AGENTS",
     "",
-    "Keep this file short and use the generated navigation files for details.",
+    "Keep this file short. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, or manual escape hatches.",
     "",
     "## Start Here",
     "- Read `.flowness/navigation.md` first.",
     "- Use `.flowness/context-index.json` to locate files.",
     "- Use `.flowness/commands.json` for commands.",
-    '- Use `flowness run`, `flowness review:run`, `flowness step`, `flowness status`, `flowness locate "<task description>"`, `flowness test --summary`, and `flowness audit --changed`.',
+    "- Use the command list as agent-facing instructions and manual escape hatches, not as the normal human workflow.",
+    '- Use `flowness locate "<task description>"` when you need the smallest useful file map.',
+    "- Key escape hatches: `flowness review:run --issue ISSUE-ID`, `flowness test --summary`, and `flowness audit --changed`.",
     "- Treat `.flowness/` as the source of truth and `.agent/` as legacy only.",
     "- Keep issue logs append-only and keep evidence summaries short.",
     "- Never edit workflow state by hand.",
@@ -1664,7 +1670,7 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     `- Project: ${analysis.projectName} | Package manager: ${analysis.packageManager} | Language: ${analysis.language} | Framework: ${analysis.framework}`,
     "",
     "## Rules",
-    "- `.flowness/rules/git.md`, `.flowness/rules/commit-policy.md`, `.flowness/rules/evidence-policy.md`, `.flowness/rules/workflow-routing.md`, and other `.flowness/rules/*.md` files.",
+    "- `.flowness/rules/git.md`, `.flowness/rules/commit-policy.md`, `.flowness/rules/evidence-policy.md`, `.flowness/rules/performance-improvement.md`, `.flowness/rules/rule-update-log.md`, `.flowness/rules/workflow-routing.md`, and other `.flowness/rules/*.md` files.",
     "",
     "## Notes",
     "- See `.flowness/project-profile.md` for any detected caveats.",
@@ -1706,6 +1712,12 @@ export function renderGeneratedProjectProfileMarkdown(analysis: ProjectAnalysis)
 
 export function renderGeneratedProjectCommandsMarkdown(analysis: ProjectAnalysis): string {
   return JSON.stringify({
+    workflow: [
+      "Install the CLI.",
+      "Run flowness init once per project.",
+      "Talk to the coding agent naturally for the normal development flow.",
+      "Use the command list below as setup, debugging, recovery, or manual escape hatches.",
+    ],
     commands: {
       init: "flowness init",
       run: 'flowness run "<request>"',
@@ -1773,7 +1785,7 @@ function renderGeneratedHarnessManifestJson(
   generatedFileHashes: GeneratedFileHashes = {},
 ): string {
   const payload = {
-    version: "0.2.3",
+    version: "0.2.4",
     project: {
       name: analysis.projectName,
       packageManager: analysis.packageManager,
@@ -1958,14 +1970,68 @@ export function renderGeneratedPlanningDocArtifacts(analysis: ProjectAnalysis): 
         renderMarkdownLink("PRD", "PRD.md"),
       ],
     })),
+    artifact("docs/troubleshooting/performance-improvements.md", renderPlanningDocMarkdown({
+      title: "Performance Improvements Troubleshooting",
+      intro: "Use this guide when a request is slow, a benchmark is noisy, or the before/after comparison is hard to trust.",
+      summary: "Keep the performance workflow repeatable: capture a baseline, rerun the same workload after the change, compare the result, and document any measurement limits.",
+      sections: [
+        {
+          title: "## Baseline",
+          bullets: [
+            "Record the starting metric, workload, and environment.",
+            "Capture the exact command or benchmark that produced the baseline.",
+          ],
+        },
+        {
+          title: "## Measurement",
+          bullets: [
+            "Run the same workload after the change.",
+            "Use the same metric whenever possible.",
+            "Note any differences in machine, cache state, sample size, or input data.",
+          ],
+        },
+        {
+          title: "## Troubleshooting",
+          bullets: [
+            "If the result is noisy, rerun the measurement and record the noise source.",
+            "If the metric is unclear, narrow the request to one user flow or endpoint.",
+            "If the change is durable, update `performance-improvement.md` and record the approval in `rule-update-log.md`.",
+          ],
+        },
+        {
+          title: "## Evidence",
+          bullets: [
+            "Attach the baseline output, the follow-up output, and the comparison summary.",
+            "Link to the relevant source files or commands that prove the change.",
+          ],
+        },
+      ],
+      links: [
+        renderMarkdownLink("Navigation", "../.flowness/navigation.md"),
+        renderMarkdownLink("Performance Improvement Rule", "../.flowness/rules/performance-improvement.md"),
+      ],
+    })),
   ];
 }
 
 export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonly ScaffoldArtifact[] {
+  const currentState = "initial scaffold";
+  const stackLabel = analysis.framework === "Unknown"
+    ? analysis.language
+    : `${analysis.language} / ${analysis.framework}`;
+
+  const techRuleArtifacts = techRuleSpecs.map((spec) => artifact(
+    `.flowness/rules/tech/${spec.fileName}`,
+    renderTechRuleMarkdown(spec, analysis),
+  ));
+
   return [
     artifact(".flowness/rules/README.md", [
       "# Rules",
       "",
+      "Current-state rule files live here. Use `rule-update-log.md` for history and keep the individual rule files free of append-only change logs.",
+      "",
+      "## Core Rules",
       "- `request-analysis.md`",
       "- `clarification-policy.md`",
       "- `issue-decomposition.md`",
@@ -1974,160 +2040,270 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- `workflow-routing.md`",
       "- `definition-of-done.md`",
       "- `evidence-policy.md`",
+      "- `performance-improvement.md`",
       "- `git.md`",
       "- `commit-policy.md`",
       "- `workflow-step-contract.md`",
       "- `project-overrides.md`",
-      "- `change-log.md`",
+      "- `rule-update-log.md`",
+      "",
+      "## Tech Rules",
       "- `tech/README.md`",
+      "- `tech/java.md`",
+      "- `tech/javascript.md`",
+      "- `tech/typescript.md`",
+      "- `tech/python.md`",
+      "- `tech/spring.md`",
+      "- `tech/react.md`",
+      "- `tech/nextjs.md`",
+      "- `tech/nestjs.md`",
+      "- `tech/django.md`",
       "",
-      "These rules keep the project-specific workflow disciplined and evidence-backed.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/request-analysis.md", [
-      "# Request Analysis",
-      "",
-      "- First classify the request before creating any issue.",
-      "- Treat missing essential requirements as blockers before planning or coding.",
-      "- Use `casual_or_question` for greetings and simple Q&A; do not create an issue.",
-      "- Use `single_development_task` for a one-off implementation task.",
-      "- Use `mvp_or_product_planning` for MVP or product planning requests and route them to `mvp-planning`.",
-      "- Use `multi_issue_project` when the request should be split into multiple child issues.",
-      "- Route review, bug fix, and refactor requests to their matching workflows.",
-      "- Reuse an existing open issue when the request matches the same work item.",
-      "- Route clear architecture, testing, or framework preference updates to `rule:update` instead of issue creation.",
+      "Keep rule files concise, current-state only, and easy to update in place.",
       "",
     ].join("\n")),
-    artifact(".flowness/rules/clarification-policy.md", [
-      "# Clarification Policy",
+    artifact(".flowness/rules/request-analysis.md", renderRuleDocumentMarkdown({
+      title: "Request Analysis",
+      ruleId: "request-analysis",
+      scope: "Classify incoming requests before creating issues or changing durable rules.",
+      policy: [
+        "Classify first, then choose the workflow or approval path.",
+        "Treat casual conversation and simple questions as non-issue work.",
+        "Use `rule_change_candidate` when a request changes a durable convention or policy.",
+        "Reuse an existing open issue when the request matches the same work item.",
+        "Route feature, bugfix, refactor, review, planning, and performance work to the matching workflow.",
+      ],
+      examples: [
+        "로그인 기능 만들어줘 -> feature issue.",
+        "React는 feature-based로 작성해 -> rule approval prompt.",
+      ],
+      lastUpdated: currentState,
+      notes: ["Keep the routing decision visible in the issue log."],
+    })),
+    artifact(".flowness/rules/clarification-policy.md", renderRuleDocumentMarkdown({
+      title: "Clarification Policy",
+      ruleId: "clarification-policy",
+      scope: "Ask only for the missing information that blocks safe progress.",
+      policy: [
+        "Ask early when the request is underspecified.",
+        "Keep questions focused on decision points, not on background chatter.",
+        "Use multiple options with pros and cons plus a recommended default.",
+        "Stop before implementation if a required answer is still missing.",
+      ],
+      examples: [
+        "Need target users and acceptance criteria before MVP planning.",
+        "Need baseline and metric before performance work.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/issue-decomposition.md", renderRuleDocumentMarkdown({
+      title: "Issue Decomposition",
+      ruleId: "issue-decomposition",
+      scope: "Split broad requests into independently executable child issues.",
+      policy: [
+        "Create a parent issue for the plan and child issues for execution slices.",
+        "Keep each child issue small enough to verify independently.",
+        "Include goal, acceptance criteria, dependencies, and evidence requirements.",
+      ],
+      examples: [
+        "Shopping mall -> catalog, cart, orders, admin slices.",
+        "Community site -> access, posts, moderation, admin slices.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/fail-closed-workflow.md", renderRuleDocumentMarkdown({
+      title: "Fail Closed Workflow",
+      ruleId: "fail-closed-workflow",
+      scope: "Protect workflow state transitions and human gates.",
+      policy: [
+        "Do not skip workflow steps.",
+        "Do not advance state before the matching log entry exists.",
+        "Do not pass a human gate without explicit approval evidence.",
+        "Do not close without evidence review and recorded evidence.",
+      ],
+      examples: [
+        "Evidence Review missing before Close -> stop.",
+        "State/log mismatch -> recover before continuing.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/flowness-activation.md", renderRuleDocumentMarkdown({
+      title: "Flowness Activation",
+      ruleId: "flowness-activation",
+      scope: "Define how a project should behave after `flowness init`.",
+      policy: [
+        "Initialize once, then work through the coding agent in natural language.",
+        "Use Flowness for new work and keep `.agent/` as legacy only.",
+        "Analyze the request before creating or reusing work items.",
+        "Ask for clarification when the requirements are incomplete.",
+      ],
+      examples: [
+        "Run `flowness init` once, then continue through the agent workflow.",
+        "Reuse an existing open issue when the request matches the same work item.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/workflow-routing.md", renderRuleDocumentMarkdown({
+      title: "Workflow Routing",
+      ruleId: "workflow-routing",
+      scope: "Map requests to issues, workflows, or rule approval paths.",
+      policy: [
+        "Route review, bugfix, refactor, planning, and performance work to their workflows.",
+        "Route durable convention changes to rule approval instead of one-off issue creation.",
+        "Do not create duplicate issues when a matching open issue already exists.",
+        "Only create new issues when a real task is being started.",
+      ],
+      examples: [
+        "Performance improvement -> refactoring workflow.",
+        "React convention change -> rule approval path.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/definition-of-done.md", renderRuleDocumentMarkdown({
+      title: "Definition of Done",
+      ruleId: "definition-of-done",
+      scope: "Define the minimum evidence required before closing work.",
+      policy: [
+        "Use the detected build, test, and lint commands when they exist.",
+        "Keep workflow state and issue logs aligned before closing.",
+        "Log Evidence Review before Close is allowed.",
+        "Do not claim completion while a required gate is still blocked.",
+      ],
+      examples: [
+        "Attach tests and command output for a code change.",
+        "Include documentation updates when behavior changes.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/evidence-policy.md", renderRuleDocumentMarkdown({
+      title: "Evidence Policy",
+      ruleId: "evidence-policy",
+      scope: "Decide what counts as proof and how to record it.",
+      policy: [
+        "Prefer evidence from the detected source directories and docs.",
+        "Capture build, test, and lint output when those commands exist.",
+        "For performance work, record the baseline, the follow-up measurement, and the comparison.",
+        "Keep evidence append-only in the issue log and note limitations clearly.",
+      ],
+      examples: [
+        "Attach command output plus file references.",
+        "Use docs/troubleshooting/performance-improvements.md when benchmark noise needs explanation.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/performance-improvement.md", renderRuleDocumentMarkdown({
+      title: "Performance Improvement",
+      ruleId: "performance-improvement",
+      scope: "Handle performance work with repeatable measurements and comparison evidence.",
+      policy: [
+        "Capture a baseline before changing code.",
+        "Measure the same workload or user flow after the change.",
+        "Compare before and after using the same metric when possible.",
+        "Document environment noise, measurement limits, and troubleshooting notes.",
+      ],
+      examples: [
+        "Latency regression -> collect p95 before and after the change.",
+        "Noisy benchmark -> record the environment and rerun the measurement.",
+      ],
+      lastUpdated: currentState,
+      notes: ["See docs/troubleshooting/performance-improvements.md for measurement guidance."],
+    })),
+    artifact(".flowness/rules/git.md", renderRuleDocumentMarkdown({
+      title: "Git Rules",
+      ruleId: "git",
+      scope: "Protect repository selection, commit scope, and dangerous git operations.",
+      policy: [
+        "Resolve the repository from the changed files, not from the process cwd.",
+        "Stage only the intended files and keep commits tied to evidence review.",
+        "Forbid `git add .`, `git commit -a`, force push, rebase, reset --hard, and merge by default.",
+        "Avoid committing logs, temporary files, nested repo metadata, or generated noise.",
+      ],
+      examples: [
+        "Use an explicit `git add -- <files>` list.",
+        "Keep the commit gate after Evidence Review passes.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/commit-policy.md", renderRuleDocumentMarkdown({
+      title: "Commit Policy",
+      ruleId: "commit-policy",
+      scope: "Define when and how a commit can be created.",
+      policy: [
+        "Commit only after the workflow evidence bar is met.",
+        "Use concise conventional-style commit messages.",
+        "Do not use `git add .` or `git commit -a`.",
+        "Do not commit automatically before the workflow commit step.",
+      ],
+      examples: [
+        "Stage approved files after the evidence review is logged.",
+        "Use a human-approved commit gate for the final change set.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/workflow-step-contract.md", renderRuleDocumentMarkdown({
+      title: "Workflow Step Contract",
+      ruleId: "workflow-step-contract",
+      scope: "Run exactly one valid workflow step at a time.",
+      policy: [
+        "Read the current step file and follow its `Next` link.",
+        "Append logs instead of rewriting them.",
+        "Never advance workflow state before appending the matching log entry.",
+        "Stop and recover if the state and log disagree.",
+      ],
+      examples: [
+        "Evidence Review must exist before Close can run.",
+        "If a review fails, record the recovery path before retrying.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/project-overrides.md", renderRuleDocumentMarkdown({
+      title: "Project Overrides",
+      ruleId: "project-overrides",
+      scope: "Record durable project-specific exceptions that override the defaults.",
+      policy: [
+        "Keep overrides minimal and explicit.",
+        "Use this file only for stronger project-specific exceptions.",
+        "Do not bury durable rule changes in issue logs or comments.",
+        "Use the central rule update log when an override is approved or changed.",
+      ],
+      examples: [
+        "Project wants strict feature slices for React work.",
+        "Project needs a stricter evidence bar than the default.",
+      ],
+      lastUpdated: currentState,
+    })),
+    artifact(".flowness/rules/rule-update-log.md", [
+      "# Rule Update Log",
       "",
-      "- Ask clarification questions early in every workflow and before any planning or coding begins if required inputs are missing.",
-      "- For MVP or product planning, require product topic, target users, main problem, core features, language, framework, package manager, runtime or version, database or storage, auth requirement, expected scale, deployment target, test strategy, and non-goals.",
-      "- For feature development, require the feature goal, user flow, target files or modules if known, API or UI behavior, data model impact, validation rules, error handling, security concerns, test expectations, and acceptance criteria.",
-      "- When requirements are incomplete, ask detailed questions with multiple options, explicit pros and cons, a recommended default, and a clear request for the user's choice.",
-      "- Log assumptions whenever requirements are incomplete.",
-      "- Stop before implementation if a required answer is still missing.",
-      "- Make missing users, goals, constraints, risks, acceptance criteria, data model, security, testing, non-goals, PRD, and ARD explicit.",
+      "- Rule ID: rule-update-log",
       "",
-    ].join("\n")),
-    artifact(".flowness/rules/issue-decomposition.md", [
-      "# Issue Decomposition",
+      "## Scope",
+      "Append-only history for approved rule changes and rule file creation.",
       "",
-      "- Split large requests into 1..N issues when the work is too broad for one issue.",
-      "- Each issue must include title, type, workflow, goal, acceptance criteria, dependencies, and evidence required.",
-      "- Persist parent/child relation when the workspace can store it.",
-      "- Keep child issues small enough to execute and verify independently.",
+      "## Policy",
+      "- Record the rule id, source request, approval path, and target file for each change.",
+      "- Keep this log append-only.",
+      "- Do not add history blocks inside individual rule files.",
+      "- Use the current-state rule file as the single source of truth for each rule.",
       "",
-    ].join("\n")),
-    artifact(".flowness/rules/fail-closed-workflow.md", [
-      "# Fail Closed Workflow",
-      "",
-      "- Do not skip workflow steps.",
-      "- Do not advance workflow state before the matching log entry is appended.",
-      "- Do not pass a human gate without explicit approval evidence in the log.",
-      "- Do not close an issue without evidence review and recorded evidence.",
-      "- If workflow state and log disagree, stop and recover first.",
-      "- If a gate fails, record the failure and stop at the blocked step.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/flowness-activation.md", [
-      "# Flowness Activation",
-      "",
-      `- Project: ${analysis.projectName}`,
-      "- If legacy `.agent/` files exist, use Flowness for all new work and migrate when ready.",
-      "- First analyze the request before creating any issue.",
-      "- Do not create issues for simple questions or casual conversation.",
-      "- Use the MVP workflow for product and MVP requests.",
-      "- Ask clarification questions when the requirements are incomplete.",
-      "- Reuse an existing open issue when the request matches the same work item.",
-      "- Split large work into issues instead of forcing it into one ticket.",
-      "- Follow `.flowness/rules/*` and the workflow step files before implementing.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/workflow-routing.md", [
-      "# Workflow Routing",
-      "",
-      "- Classify the request before changing code.",
-      "- Casual conversation and simple Q&A do not create issues.",
-      "- Route `mvp_or_product_planning` requests to `mvp-planning`.",
-      "- Route review, bug fix, and refactor requests to their matching workflows.",
-      "- Reuse an existing issue when the request matches the same work item.",
-      "- Create a new issue only when a real task is being started.",
-      "- Do not create a duplicate issue when a matching open issue already exists.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/definition-of-done.md", [
-      "# Definition of Done",
-      "",
-      `- Build evidence should use \`${analysis.buildCommand ?? "TODO: detect build command"}\` when available.`,
-      `- Test evidence should use \`${analysis.testCommand ?? "TODO: detect test command"}\` when available.`,
-      analysis.lintCommand === null
-        ? "- Lint evidence is not yet detected; add a lint command when the project has one."
-        : `- Lint evidence should use \`${analysis.lintCommand}\` when available.`,
-      "- Evidence must point to real project artifacts, not only Flowness metadata.",
-      "- Workflow state and issue logs must stay aligned before closing.",
-      "- Evidence Review must be logged before Close is allowed.",
-      "- Do not claim completion while the final review or evidence gate is still blocked.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/evidence-policy.md", [
-      "# Evidence Policy",
-      "",
-      "- Prefer evidence from the detected source directories and docs.",
-      analysis.sourceDirectories.length === 0
-        ? "- TODO: detect source directories before relying on evidence."
-        : `- Source directories: ${analysis.sourceDirectories.join(", ")}`,
-      analysis.documentationPaths.length === 0
-        ? "- TODO: detect README/docs paths before relying on documentation evidence."
-        : `- Documentation paths: ${analysis.documentationPaths.join(", ")}`,
-      `- Use \`${analysis.testCommand ?? "TODO: detect test command"}\` for test evidence when it exists.`,
-      `- Use \`${analysis.buildCommand ?? "TODO: detect build command"}\` for build evidence when it exists.`,
-      analysis.lintCommand === null
-        ? "- Add lint evidence once a lint command exists."
-        : `- Use \`${analysis.lintCommand}\` for lint evidence when it exists.`,
-      "- Evidence Review should check changed files, tests, build, lint, command outputs or summaries, docs updated if needed, and unresolved risks.",
-      "- Keep evidence append-only in the issue log.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/git.md", renderGitRuleMarkdown(analysis, "Git Rules")),
-    artifact(".flowness/rules/commit-policy.md", renderGitRuleMarkdown(analysis, "Commit Policy")),
-    artifact(".flowness/rules/workflow-step-contract.md", [
-      "# Workflow Step Contract",
-      "",
-      "- Run exactly one valid step at a time.",
-      "- Do not skip ahead in the workflow order.",
-      "- Read the current step file and follow the `Next` link before moving on.",
-      "- Append logs instead of rewriting them.",
-      "- Never advance workflow state before appending the matching log entry.",
-      "- Stop when the current step needs evidence or review that is still missing.",
-      "- If workflow state and log disagree, stop and recover before continuing.",
-      "- If a review fails, log the recovery path before trying again.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/project-overrides.md", [
-      "# Project Overrides",
-      "",
-      "- Use this file for project-specific rule changes that should override the defaults.",
-      "- Keep updates append-only and record why the default was not enough.",
-      "- Link any rule update back to the relevant issue, request, or decision.",
-      "",
-      "## Current Overrides",
-      "- Record the first override below this line.",
-      "",
-    ].join("\n")),
-    artifact(".flowness/rules/change-log.md", [
-      "# Rule Change Log",
-      "",
-      "- Append-only history of rule updates and overrides.",
-      "- Every update should record the source instruction, target rule file, and why it changed.",
+      "## Examples",
+      "- Approved `tech/react` convention update.",
+      "- Added `performance-improvement.md` after init.",
       "",
       "## Entries",
-      "- Add the first rule update entry below this line.",
+      "- None yet.",
+      "",
+      "## Last Updated",
+      `- ${currentState}`,
       "",
     ].join("\n")),
     artifact(".flowness/rules/tech/README.md", [
       "# Tech Rules",
       "",
+      "These files hold current-state language and framework guidance for the project.",
+      "Use `project-overrides.md` for stronger project-specific exceptions and `rule-update-log.md` for history.",
+      "",
+      "## Files",
       "- `java.md`",
       "- `javascript.md`",
       "- `typescript.md`",
@@ -2138,11 +2314,8 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       "- `nestjs.md`",
       "- `django.md`",
       "",
-      "These files hold the default language and framework guidance for the project.",
-      "Use `project-overrides.md` for any stronger project-specific exceptions.",
-      "",
     ].join("\n")),
-    ...techRuleSpecs.map((spec) => artifact(`.flowness/rules/tech/${spec.fileName}`, renderTechRuleMarkdown(spec, analysis))),
+    ...techRuleArtifacts,
   ];
 }
 
@@ -2555,6 +2728,8 @@ export function renderGeneratedScriptsReadmeMarkdown(analysis: ProjectAnalysis):
   return [
     "# Scripts",
     "",
+    "After `flowness init`, treat these scripts as agent-facing helpers and manual escape hatches rather than the normal human workflow.",
+    "",
     "Use the TypeScript runner when you want a local protocol helper:",
     "",
     '```bash',
@@ -2589,7 +2764,7 @@ export function renderGeneratedScriptsReadmeMarkdown(analysis: ProjectAnalysis):
     "- Keep helper scripts small and deterministic.",
     "- If a command is missing, add a TODO instead of guessing.",
     "- Read `.flowness/navigation.md` before broad file searching or manual navigation.",
-    "- Use `flowness step --issue ISSUE-ID`, `flowness status --issue ISSUE-ID`, and `flowness evidence:add ...` instead of editing workflow JSON by hand.",
+    "- Use `flowness step --issue ISSUE-ID`, `flowness status --issue ISSUE-ID`, and `flowness evidence:add ...` as workflow escape hatches instead of editing workflow JSON by hand.",
     "",
   ].join("\n");
 }

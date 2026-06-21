@@ -57,12 +57,14 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.ok(result.createdFiles.includes(".flowness/rules/git.md"));
   assert.ok(result.createdFiles.includes(".flowness/rules/commit-policy.md"));
   assert.ok(result.createdFiles.includes(".flowness/rules/project-overrides.md"));
-  assert.ok(result.createdFiles.includes(".flowness/rules/change-log.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/performance-improvement.md"));
+  assert.ok(result.createdFiles.includes(".flowness/rules/rule-update-log.md"));
   assert.ok(result.createdFiles.includes(".flowness/rules/tech/README.md"));
   assert.ok(result.createdFiles.includes(".flowness/rules/tech/react.md"));
   assert.ok(result.createdFiles.includes(".flowness/rules/tech/typescript.md"));
   assert.ok(result.createdFiles.includes(".flowness/scripts/flowness-runner.ts"));
   assert.ok(result.createdFiles.includes(".flowness/scripts/workflow-guard.ts"));
+  assert.ok(result.createdFiles.includes("docs/troubleshooting/performance-improvements.md"));
   assert.ok(result.createdFiles.includes("docs/PRD.md"));
   assert.ok(result.createdFiles.includes("docs/ARD.md"));
   assert.ok(result.createdFiles.includes(".flowness/workflows/feature-development/07-commit.md"));
@@ -76,11 +78,12 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.equal(await exists(join(rootDir, ".codex")), false);
 
   const agents = await readFile(join(rootDir, "AGENTS.md"), "utf8");
-  assert.match(agents, /Keep this file short and use the generated navigation files for details\./);
+  assert.match(agents, /Keep this file short\. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, or manual escape hatches\./);
   assert.match(agents, /flowness locate "<task description>"/);
   assert.match(agents, /flowness review:run/);
   assert.match(agents, /flowness test --summary/);
   assert.match(agents, /flowness audit --changed/);
+  assert.match(agents, /Use the command list as agent-facing instructions and manual escape hatches, not as the normal human workflow\./);
   assert.match(agents, /Treat `\.flowness\/` as the source of truth and `\.agent\/` as legacy only\./);
   assert.match(agents, /Do not paste long transcripts into logs, findings, or reviews\./);
   assert.ok(agents.split("\n").length < 45);
@@ -195,7 +198,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.3");
+  assert.equal(manifest.version, "0.2.4");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.contextFiles.activeIssue, ".flowness/state/active-issue.md");
   assert.equal(manifest.contextFiles.navigation, ".flowness/navigation.md");
@@ -227,15 +230,20 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(featureCommitStep, /Report the repo root, commit hash, commit message, and changed files after the commit succeeds\./);
 
   const gitRules = await readFile(join(rootDir, ".flowness/rules/git.md"), "utf8");
-  assert.match(gitRules, /Git repo detection: Resolve the repository from the changed files/);
-  assert.match(gitRules, /Commit message style: conventional/);
-  assert.match(gitRules, /Worktrees: allow/);
-  assert.match(gitRules, /Never commit suffix: \.log/);
+  assert.match(gitRules, /## Scope/);
+  assert.match(gitRules, /Protect repository selection, commit scope, and dangerous git operations\./);
+  assert.match(gitRules, /Resolve the repository from the changed files, not from the process cwd\./);
+  assert.match(gitRules, /## Policy/);
+  assert.match(gitRules, /Stage only the intended files and keep commits tied to evidence review\./);
+  assert.match(gitRules, /Forbid `git add \.`, `git commit -a`, force push, rebase, reset --hard, and merge by default\./);
+  assert.match(gitRules, /Avoid committing logs, temporary files, nested repo metadata, or generated noise\./);
 
   const commitPolicy = await readFile(join(rootDir, ".flowness/rules/commit-policy.md"), "utf8");
-  assert.match(commitPolicy, /git add \. forbidden: yes/);
-  assert.match(commitPolicy, /git commit -a forbidden: yes/);
-  assert.match(commitPolicy, /Do not commit before required checks pass\./);
+  assert.match(commitPolicy, /## Policy/);
+  assert.match(commitPolicy, /Commit only after the workflow evidence bar is met\./);
+  assert.match(commitPolicy, /Use concise conventional-style commit messages\./);
+  assert.match(commitPolicy, /Do not use `git add \.` or `git commit -a`\./);
+  assert.match(commitPolicy, /Do not commit automatically before the workflow commit step\./);
 
   const featureWorkflowFiles = (await readdir(join(rootDir, ".flowness/workflows/feature-development"))).sort();
   assert.deepEqual(featureWorkflowFiles, [
@@ -334,11 +342,12 @@ test("initializeProject creates the Flowness project skeleton", async () => {
 
   const projectOverrides = await readFile(join(rootDir, ".flowness/rules/project-overrides.md"), "utf8");
   assert.match(projectOverrides, /# Project Overrides/);
-  assert.match(projectOverrides, /Record the first override below this line\./);
+  assert.match(projectOverrides, /## Policy/);
+  assert.match(projectOverrides, /Use the central rule update log when an override is approved or changed\./);
 
-  const changeLog = await readFile(join(rootDir, ".flowness/rules/change-log.md"), "utf8");
-  assert.match(changeLog, /# Rule Change Log/);
-  assert.match(changeLog, /Add the first rule update entry below this line\./);
+  const changeLog = await readFile(join(rootDir, ".flowness/rules/rule-update-log.md"), "utf8");
+  assert.match(changeLog, /# Rule Update Log/);
+  assert.match(changeLog, /- None yet\./);
 });
 
 test("initializeProject does not overwrite existing files without force", async () => {

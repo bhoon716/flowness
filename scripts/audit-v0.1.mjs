@@ -91,7 +91,8 @@ async function main() {
     ensureFile(join(sandboxRoot, ".flowness/rules/git.md"), "init scaffold git rules");
     ensureFile(join(sandboxRoot, ".flowness/rules/commit-policy.md"), "init scaffold commit policy");
     ensureFile(join(sandboxRoot, ".flowness/rules/project-overrides.md"), "init scaffold project overrides");
-    ensureFile(join(sandboxRoot, ".flowness/rules/change-log.md"), "init scaffold rule change log");
+    ensureFile(join(sandboxRoot, ".flowness/rules/rule-update-log.md"), "init scaffold rule update log");
+    ensureFile(join(sandboxRoot, ".flowness/rules/performance-improvement.md"), "init scaffold performance rule");
     ensureFile(join(sandboxRoot, ".flowness/rules/tech/README.md"), "init scaffold tech rule index");
     ensureFile(join(sandboxRoot, ".flowness/rules/tech/react.md"), "init scaffold react rule");
     ensureFile(join(sandboxRoot, ".flowness/rules/tech/typescript.md"), "init scaffold typescript rule");
@@ -100,6 +101,7 @@ async function main() {
     ensureFile(join(sandboxRoot, ".flowness/scripts/check-md-size.py"), "init scaffold script");
     ensureFile(join(sandboxRoot, "docs/PRD.md"), "init scaffold PRD");
     ensureFile(join(sandboxRoot, "docs/ARD.md"), "init scaffold ARD");
+    ensureFile(join(sandboxRoot, "docs/troubleshooting/performance-improvements.md"), "init scaffold performance troubleshooting doc");
     ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/README.md"), "init scaffold feature workflow");
     ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/07-commit.md"), "init scaffold feature commit step");
     ensureFile(join(sandboxRoot, ".flowness/workflows/mvp-planning/08-commit.md"), "init scaffold mvp commit step");
@@ -137,7 +139,7 @@ async function main() {
     }
 
     const manifestJson = JSON.parse(readFileSync(join(sandboxRoot, ".flowness/harness-manifest.json"), "utf8"));
-    if (manifestJson.version !== "0.2.3") {
+    if (manifestJson.version !== "0.2.4") {
       throw new Error("harness manifest version is incorrect.");
     }
     if (manifestJson.contextFiles.findings !== ".flowness/findings/README.md") {

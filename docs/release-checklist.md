@@ -33,7 +33,9 @@ If the GitHub README and npm README ever become the same file, record that here 
 ## Command Documentation Rules
 
 - If CLI commands change, update both README files and the release notes.
+- Keep the post-init workflow description aligned with the "initialize once, then talk to the coding agent" flow.
 - Keep `flowness locate`, `flowness test --summary`, `flowness audit --changed`, and `flowness upgrade` documented.
+- Keep `rule-update-log.md` and `docs/troubleshooting/performance-improvements.md` in the release notes if they are user-visible changes.
 - Keep the generated command reference in `packages/cli/README.md` in sync with the command surface that ships in the package.
 
 ## Notes

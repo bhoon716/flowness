@@ -184,8 +184,10 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
   assert.ok(await exists(join(rootDir, ".flowness", "findings", "README.md")));
   assert.ok(await exists(join(rootDir, ".flowness", "templates", "finding-template.md")));
   assert.ok(await exists(join(rootDir, ".flowness", "rules", "project-overrides.md")));
-  assert.ok(await exists(join(rootDir, ".flowness", "rules", "change-log.md")));
+  assert.ok(await exists(join(rootDir, ".flowness", "rules", "performance-improvement.md")));
+  assert.ok(await exists(join(rootDir, ".flowness", "rules", "rule-update-log.md")));
   assert.ok(await exists(join(rootDir, ".flowness", "rules", "tech", "README.md")));
+  assert.ok(await exists(join(rootDir, "docs", "troubleshooting", "performance-improvements.md")));
   assert.ok(await exists(join(rootDir, "docs", "PRD.md")));
   assert.ok(await exists(join(rootDir, "docs", "ARD.md")));
   assert.equal(await exists(join(rootDir, ".agent")), false);
@@ -216,6 +218,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
   assert.match(navigation, /# Navigation/);
   assert.match(navigation, /Active issue: none yet/);
   assert.match(navigation, /Read this file first/);
+  assert.match(navigation, /agent-facing or manual escape hatches/);
   assert.match(navigation, /## File Location/);
   assert.match(navigation, /flowness locate "<task description>"/);
   assert.match(navigation, /flowness test --summary/);
@@ -265,10 +268,12 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
   assert.match(reactRule, /## Security Notes/);
 
   const overrideRule = await readFile(join(rootDir, ".flowness", "rules", "project-overrides.md"), "utf8");
-  assert.match(overrideRule, /Record the first override below this line\./);
+  assert.match(overrideRule, /## Policy/);
+  assert.match(overrideRule, /Use the central rule update log when an override is approved or changed\./);
 
-  const changeLog = await readFile(join(rootDir, ".flowness", "rules", "change-log.md"), "utf8");
-  assert.match(changeLog, /Add the first rule update entry below this line\./);
+  const changeLog = await readFile(join(rootDir, ".flowness", "rules", "rule-update-log.md"), "utf8");
+  assert.match(changeLog, /# Rule Update Log/);
+  assert.match(changeLog, /- None yet\./);
 
   const manifest = JSON.parse(await readFile(join(rootDir, ".flowness", "harness-manifest.json"), "utf8")) as {
     readonly version: string;
@@ -282,7 +287,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.3");
+  assert.equal(manifest.version, "0.2.4");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
   assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");
@@ -415,7 +420,7 @@ test("runCli routes broad product requests to planning and decomposition", async
   });
 });
 
-test("runCli routes natural language rule updates through rule:update", async () => {
+test("runCli prompts for natural language rule changes instead of auto-updating", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-rule-update-"));
   await seedProject(rootDir);
 
@@ -425,20 +430,22 @@ test("runCli routes natural language rule updates through rule:update", async ()
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["run", "React는 feature-based로 작성해"]);
     assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Updated rule tech\/react\./);
-    assert.match(result.output, /\.flowness\/rules\/tech\/react\.md/);
-    assert.match(result.output, /\.flowness\/rules\/change-log\.md/);
+    assert.match(result.output, /Rule change candidate detected\./);
+    assert.match(result.output, /rule id: tech\/react/i);
+    assert.match(result.output, /approval required: yes/i);
+    assert.match(result.output, /flowness rule:update --id tech\/react --input/);
+    assert.match(result.output, /Rule change candidate: yes/);
 
     const directories = await issueDirectories(rootDir);
     assert.deepEqual(directories, []);
 
     const reactRule = await readFile(join(rootDir, ".flowness", "rules", "tech", "react.md"), "utf8");
-    assert.match(reactRule, /## Update/);
-    assert.match(reactRule, /feature-based/);
+    assert.match(reactRule, /# React/);
+    assert.doesNotMatch(reactRule, /## Update/);
 
-    const changeLog = await readFile(join(rootDir, ".flowness", "rules", "change-log.md"), "utf8");
-    assert.match(changeLog, /tech\/react/);
-    assert.match(changeLog, /React는 feature-based로 작성해/);
+    const changeLog = await readFile(join(rootDir, ".flowness", "rules", "rule-update-log.md"), "utf8");
+    assert.match(changeLog, /# Rule Update Log/);
+    assert.match(changeLog, /- None yet\./);
   });
 });
 
@@ -624,7 +631,7 @@ test("runCli upgrade --dry-run reports a plan without writing files", async () =
     const result = await runCli(["upgrade", "--dry-run"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: legacy/);
-    assert.match(result.output, /Target version: 0\.2\.3/);
+        assert.match(result.output, /Target version: 0\.2\.4/);
     assert.match(result.output, /Will regenerate:/);
     assert.match(result.output, /Will add if missing:/);
     assert.match(result.output, /Will patch:/);
@@ -693,7 +700,7 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
     const result = await runCli(["upgrade", "--apply"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: 0\.1\.4/);
-    assert.match(result.output, /Target version: 0\.2\.3/);
+        assert.match(result.output, /Target version: 0\.2\.4/);
     assert.match(result.output, /Backup path:/);
     assert.match(result.output, /Report path:/);
     assert.match(result.output, /Updated files:/);
@@ -717,7 +724,7 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
   assert.match(updatedAgents, /# Custom Intro/);
   assert.match(updatedAgents, /# Custom Footer/);
   assert.match(updatedAgents, /# AGENTS/);
-  assert.match(updatedAgents, /Keep this file short and use the generated navigation files for details\./);
+  assert.match(updatedAgents, /Keep this file short\. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, or manual escape hatches\./);
 
   assert.equal(await readFile(issueFile, "utf8"), "# Issue\n");
   assert.equal(await readFile(logFile, "utf8"), "# Log\n");
@@ -917,8 +924,8 @@ test("runCli upgrade commands use dynamic versioning and respect overrides", asy
     // default target follows package version
     const defaultUpgrade = await runCli(["upgrade", "--dry-run"]);
     assert.equal(defaultUpgrade.exitCode, 0);
-    // targetVersion should match current package version which is "0.2.3"
-    assert.match(defaultUpgrade.output, /Target version: 0\.2\.3/);
+    // targetVersion should match current package version which is "0.2.4"
+    assert.match(defaultUpgrade.output, /Target version: 0\.2\.4/);
 
     // upgrade --to respects explicit target version
     const explicitUpgrade = await runCli(["upgrade", "--dry-run", "--to", "0.2.1"]);

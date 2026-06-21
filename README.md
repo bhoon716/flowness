@@ -10,7 +10,7 @@
   <a href="README.md">English</a> | <a href="README.ko.md">한국어</a>
 </p>
 
-> Issue-driven AI development that keeps requests, workflows, evidence, and navigation aligned.
+> Initialize once with `flowness init`, then talk to the coding agent naturally. Commands remain available as escape hatches for navigation, testing, audits, upgrades, and recovery.
 
 ## At a glance
 
@@ -23,7 +23,7 @@
 
 ## What is Flowness?
 
-Flowness is a development operating system that routes requests to issues, executes them via explicit workflows, and preserves evidence and logs in an append-only format. It focuses on keeping the development history reproducible rather than just modifying code quickly.
+Flowness is a development operating system that routes requests to issues, executes them via explicit workflows, and preserves evidence and logs in an append-only format. The normal flow is: initialize once, then work through the coding agent in natural language. Use commands when you need a compact escape hatch for navigation, verification, or recovery.
 
 ## Install the CLI
 
@@ -46,7 +46,7 @@ flowness run "Add user authentication"
 flowness status --issue ISSUE-001-AUTH
 ```
 
-After initialization, read these files first:
+After initialization, read these files first and then continue the conversation with the coding agent:
 
 - `.flowness/navigation.md`
 - `.flowness/context-index.json`
@@ -54,9 +54,10 @@ After initialization, read these files first:
 
 ## What It Does
 
-- Routes requests to issues with explicit workflows.
-- Limits scanning scope using `flowness locate`.
-- Provides `flowness test --summary`, `flowness audit --changed`, `flowness upgrade --dry-run`, and `flowness upgrade --apply`.
+- Routes requests to issues with explicit workflows after a single `flowness init`.
+- Lets you keep working in natural language with the coding agent instead of command-first rituals.
+- Limits scanning scope using `flowness locate` when you need a compact file map.
+- Provides `flowness test --summary`, `flowness audit --changed`, `flowness upgrade --dry-run`, and `flowness upgrade --apply` as escape hatches.
 - Separates code review flows with `flowness review:run`.
 - Explicitly manages progress with `flowness step`, `flowness workflow:step`, and `flowness status`.
 - Preserves evidence, logs, and review outputs in an append-only format.
@@ -82,7 +83,7 @@ After initialization, read these files first:
 
 - Read `.flowness/navigation.md` before scanning the workspace.
 - Use `.flowness/context-index.json` to find the smallest useful file set.
-- Use `.flowness/commands.json` for exact command strings.
+- Use `.flowness/commands.json` for exact command strings when you need a manual escape hatch.
 - Prefer `flowness locate "<task description>"` over broad repo scans.
 
 ## Upgrade Existing Projects

@@ -2,7 +2,7 @@
 
 This is the npm README for the Flowness CLI package. The repository overview lives in the root [README](https://github.com/bhoon716/flowness/blob/main/README.md).
 
-> Command reference for the Flowness CLI package and the workspace flow it drives.
+> Initialize once with `flowness init`, then work through the coding agent in natural language. The command reference below is for setup, debugging, recovery, and other manual escape hatches.
 
 ## Package at a Glance
 
@@ -13,7 +13,7 @@ This is the npm README for the Flowness CLI package. The repository overview liv
 | Best for | Initializing and operating Flowness workspaces |
 | Related docs | Root README, release checklist, release notes |
 
-Flowness turns requests into tracked issues, runs them through explicit workflows, and keeps evidence in append-only logs.
+Flowness turns requests into tracked issues, runs them through explicit workflows, and keeps evidence in append-only logs. After init, natural-language requests should go through the coding agent first, and you can reach for commands only when you need a compact override.
 
 ## Install
 
@@ -36,7 +36,7 @@ flowness run "Add user authentication"
 flowness review:run --issue ISSUE-001-AUTH
 ```
 
-After init, use the generated navigation files first:
+After init, use the generated navigation files first, then continue the conversation with the coding agent:
 
 - `.flowness/navigation.md`
 - `.flowness/context-index.json`
@@ -44,6 +44,8 @@ After init, use the generated navigation files first:
 
 ## Highlights
 
+- `flowness init` is the one-time bootstrap step for a project.
+- Natural-language requests should go through the coding agent first.
 - `flowness locate` finds the smallest relevant file area.
 - `flowness test --summary` returns compact test output.
 - `flowness audit --changed` focuses on the current diff.

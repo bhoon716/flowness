@@ -69,6 +69,41 @@ test("request analysis exposes routing decision fields for a feature request", (
   assert.equal(analysis.requiresClarification, true);
 });
 
+test("request analysis routes performance improvement requests to the refactoring workflow", () => {
+  const analysis = analyzeRequest("로그인 속도를 최적화해줘");
+
+  assert.equal(analysis.category, "performance_improvement_task");
+  assert.equal(analysis.intent, "performance_improvement");
+  assert.equal(analysis.executionMode, "create_issue");
+  assert.equal(analysis.workflowId, "refactoring");
+  assert.equal(analysis.issueType, "refactor");
+  assert.equal(analysis.safeToProceed, true);
+  assert.equal(analysis.nextAction, "create_issue");
+  assert.equal(analysis.requiresIssue, true);
+  assert.equal(analysis.ruleChangeCandidate, false);
+  assert.equal(analysis.requiresUserApproval, false);
+  assert.equal(analysis.clarificationQuestions.length > 0, true);
+  assert.match(analysis.reason, /performance improvement/i);
+});
+
+test("request analysis identifies rule change candidates and requires approval", () => {
+  const analysis = analyzeRequest("React는 feature-based로 작성해");
+
+  assert.equal(analysis.category, "rule_change_candidate");
+  assert.equal(analysis.intent, "rule_update");
+  assert.equal(analysis.executionMode, "request_rule_approval");
+  assert.equal(analysis.issueCount, 0);
+  assert.equal(analysis.safeToProceed, false);
+  assert.equal(analysis.requiresIssue, false);
+  assert.equal(analysis.nextAction, "request_rule_approval");
+  assert.equal(analysis.ruleChangeCandidate, true);
+  assert.equal(analysis.ruleChangeRuleId, "tech/react");
+  assert.equal(analysis.requiresUserApproval, true);
+  assert.equal(analysis.clarificationQuestions.length, 0);
+  assert.match(analysis.existingRule ?? "", /feature/i);
+  assert.match(analysis.proposedRule ?? "", /feature-based/i);
+});
+
 test("request analysis derives readable issue slugs from request intent", () => {
   assert.equal(createIssueSlugFromRequest("회원가입 로그인 기능 만들어줘"), "signup-login");
   assert.equal(createIssueSlugFromRequest("커뮤니티 MVP 기획해줘"), "community-mvp-plan");

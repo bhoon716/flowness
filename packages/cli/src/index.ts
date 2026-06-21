@@ -94,7 +94,7 @@ function getPackageVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     return pkg.version;
   } catch {
-    return "0.2.2";
+    return "0.2.4";
   }
 }
 
@@ -336,6 +336,24 @@ function normalizeWorkflowId(value: string): string {
   const normalized = slugify(value);
   if (!normalized) {
     throw new Error("Workflow id must not be empty.");
+  }
+
+  return normalized;
+}
+
+function normalizeRuleId(value: string): string {
+  const normalized = value
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}/._-]+/gu, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/\/+/g, "/")
+    .replace(/^[-/]+|[-/]+$/g, "");
+
+  if (normalized.length === 0) {
+    throw new Error("Rule id must not be empty.");
   }
 
   return normalized;
@@ -1500,13 +1518,13 @@ function parseRuleCreateCommand(rest: readonly string[]): ParsedRuleCreateComman
       if (next === undefined || isOptionToken(next)) {
         throw new Error("Missing value for --id.");
       }
-      ruleId = slugify(next);
+      ruleId = normalizeRuleId(next);
       index += 1;
       continue;
     }
 
     if (token.startsWith("--id=")) {
-      ruleId = slugify(token.slice("--id=".length));
+      ruleId = normalizeRuleId(token.slice("--id=".length));
       continue;
     }
 
@@ -1544,7 +1562,7 @@ function parseRuleCreateCommand(rest: readonly string[]): ParsedRuleCreateComman
   }
 
   if (ruleId === undefined && positional.length > 0) {
-    ruleId = slugify(positional.shift() ?? "");
+    ruleId = normalizeRuleId(positional.shift() ?? "");
   }
 
   if (title === undefined && positional.length > 0) {
@@ -1561,7 +1579,7 @@ function parseRuleCreateCommand(rest: readonly string[]): ParsedRuleCreateComman
   }
 
   if (title === undefined || title.trim().length === 0) {
-    title = humanizeWorkflowName(ruleId);
+    title = humanizeRuleId(ruleId);
   }
 
   if (description === undefined || description.trim().length === 0) {
@@ -1598,13 +1616,13 @@ function parseRuleApplyCommand(rest: readonly string[]): ParsedRuleApplyCommand 
       if (next === undefined || isOptionToken(next)) {
         throw new Error("Missing value for --id.");
       }
-      ruleId = slugify(next);
+      ruleId = normalizeRuleId(next);
       index += 1;
       continue;
     }
 
     if (token.startsWith("--id=")) {
-      ruleId = slugify(token.slice("--id=".length));
+      ruleId = normalizeRuleId(token.slice("--id=".length));
       continue;
     }
 
@@ -1642,7 +1660,7 @@ function parseRuleApplyCommand(rest: readonly string[]): ParsedRuleApplyCommand 
   }
 
   if (ruleId === undefined && positional.length > 0) {
-    ruleId = slugify(positional.shift() ?? "");
+    ruleId = normalizeRuleId(positional.shift() ?? "");
   }
 
   if (input === undefined && positional.length > 0) {
@@ -1678,13 +1696,13 @@ function parseRuleUpdateCommand(rest: readonly string[]): ParsedRuleUpdateComman
       if (next === undefined || isOptionToken(next)) {
         throw new Error("Missing value for --id.");
       }
-      ruleId = slugify(next);
+      ruleId = normalizeRuleId(next);
       index += 1;
       continue;
     }
 
     if (token.startsWith("--id=")) {
-      ruleId = slugify(token.slice("--id=".length));
+      ruleId = normalizeRuleId(token.slice("--id=".length));
       continue;
     }
 
@@ -1722,7 +1740,7 @@ function parseRuleUpdateCommand(rest: readonly string[]): ParsedRuleUpdateComman
   }
 
   if (ruleId === undefined && positional.length > 0) {
-    ruleId = slugify(positional.shift() ?? "");
+    ruleId = normalizeRuleId(positional.shift() ?? "");
   }
 
   if (input === undefined && positional.length > 0) {
@@ -2033,6 +2051,12 @@ function formatRequestCategoryLabel(category: RequestAnalysis["category"]): stri
       return "a bug fix request";
     case "refactor_task":
       return "a refactor task";
+    case "performance_improvement_task":
+      return "a performance improvement request";
+    case "rule_change_candidate":
+      return "a rule change candidate";
+    default:
+      return "a request";
   }
 }
 
@@ -2159,6 +2183,9 @@ function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
     `Workflow: ${analysis.workflowId ?? "none"}`,
     `Issue type: ${analysis.issueType ?? "none"}`,
     `Clarification required: ${analysis.needsClarification ? "yes" : "no"}`,
+    `Performance improvement: ${analysis.category === "performance_improvement_task" ? "yes" : "no"}`,
+    `Rule change candidate: ${analysis.ruleChangeCandidate ? "yes" : "no"}`,
+    `Requires user approval: ${analysis.requiresUserApproval ? "yes" : "no"}`,
   ];
 
   if (analysis.reviewTarget !== undefined) {
@@ -2178,6 +2205,18 @@ function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
     lines.push(`Primary issue: ${analysis.issuePlan.primaryIssue.title}`);
     lines.push(`Primary workflow: ${analysis.issuePlan.primaryIssue.workflowId}`);
     lines.push(`Child issues planned: ${analysis.issuePlan.childIssues.length}`);
+  }
+
+  if (analysis.ruleChangeRuleId !== undefined) {
+    lines.push(`Rule id: ${analysis.ruleChangeRuleId}`);
+  }
+
+  if (analysis.existingRule !== undefined) {
+    lines.push(`Existing rule: ${analysis.existingRule}`);
+  }
+
+  if (analysis.proposedRule !== undefined) {
+    lines.push(`Proposed rule: ${analysis.proposedRule}`);
   }
 
   return lines.join("\n");
@@ -2292,6 +2331,21 @@ function formatRequestCreateSummary(input: {
   return lines.join("\n");
 }
 
+function formatRuleApprovalSummary(analysis: RequestAnalysis): string {
+  const lines = [
+    "Rule change candidate detected.",
+    `Request: ${analysis.request}`,
+    `Rule id: ${analysis.ruleChangeRuleId ?? "unknown"}`,
+    `Existing rule: ${analysis.existingRule ?? "none"}`,
+    `Proposed rule: ${analysis.proposedRule ?? "none"}`,
+    `Approval required: ${analysis.requiresUserApproval ? "yes" : "no"}`,
+    `Next action: ${analysis.requiresUserApproval ? "Review the existing rule and approve or revise the proposed change." : analysis.nextAction}`,
+    `Use: ${analysis.ruleChangeRuleId === undefined ? "flowness rule:update --id RULE-ID --input \"...\"" : `flowness rule:update --id ${analysis.ruleChangeRuleId} --input \"...\"`}`,
+  ];
+
+  return lines.join("\n");
+}
+
 function formatQuestionOrCasualSummary(analysis: RequestAnalysis): string {
   const lines = [
     "No issue created.",
@@ -2386,14 +2440,24 @@ function formatRuleUpdateSummary(input: {
   readonly ruleId: string;
   readonly filePath: string;
   readonly logPath: string | null;
-  readonly changeLogPath: string;
   readonly action: "created" | "updated";
+  readonly resolvedRuleId?: string;
+  readonly requestedRuleId?: string;
+  readonly ruleUpdateLogPath: string;
+  readonly matchedExistingRule?: boolean;
 }): string {
   return [
     `${input.action === "created" ? "Created" : "Updated"} rule ${input.ruleId}.`,
+    input.requestedRuleId !== undefined && input.requestedRuleId !== input.ruleId
+      ? `Requested rule: ${input.requestedRuleId}`
+      : null,
+    input.resolvedRuleId !== undefined && input.resolvedRuleId !== input.ruleId
+      ? `Resolved rule: ${input.resolvedRuleId}`
+      : null,
     `Path: ${input.filePath}`,
     input.logPath === null ? null : `Issue log: ${input.logPath}`,
-    `Change log: ${input.changeLogPath}`,
+    `Rule update log: ${input.ruleUpdateLogPath}`,
+    input.matchedExistingRule === true ? "Matched an existing rule instead of creating a duplicate." : null,
   ].filter((line): line is string => line !== null).join("\n");
 }
 
@@ -2678,90 +2742,6 @@ async function ensurePlanningDocs(rootDir: string, analysis: ProjectAnalysis): P
     skippedFiles,
     evidence,
   };
-}
-
-function detectNaturalLanguageRuleUpdate(request: string): { readonly ruleId: string; readonly input: string } | null {
-  const trimmed = request.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  const normalized = trimmed.toLowerCase();
-
-  if (/react\b|jsx\b|feature[-\s]?based\b|feature slice\b|feature[-\s]?first\b/.test(normalized)) {
-    return { ruleId: "tech/react", input: trimmed };
-  }
-
-  if (/next\.?js\b|app router\b|server component\b|server action\b/.test(normalized)) {
-    return { ruleId: "tech/nextjs", input: trimmed };
-  }
-
-  if (/nestjs\b|controller\b.*\bprovider\b|provider\b.*\bcontroller\b/.test(normalized)) {
-    return { ruleId: "tech/nestjs", input: trimmed };
-  }
-
-  if (/spring\b|controller\b.*\bservice\b|service\b.*\brepository\b|layered architecture\b/.test(normalized)) {
-    return { ruleId: "tech/spring", input: trimmed };
-  }
-
-  if (/django\b|orm\b|model\b.*\bview\b.*\btemplate\b/.test(normalized)) {
-    return { ruleId: "tech/django", input: trimmed };
-  }
-
-  if (/typescript\b|strict typing\b|type safety\b/.test(normalized)) {
-    return { ruleId: "tech/typescript", input: trimmed };
-  }
-
-  if (/javascript\b|es modules?\b|async\/await\b/.test(normalized)) {
-    return { ruleId: "tech/javascript", input: trimmed };
-  }
-
-  if (/python\b|pep 8\b|pytest\b|pathlib\b/.test(normalized)) {
-    return { ruleId: "tech/python", input: trimmed };
-  }
-
-  if (/java\b|record\b|package structure\b|final\b/.test(normalized)) {
-    return { ruleId: "tech/java", input: trimmed };
-  }
-
-  if (/integration tests? first\b|tests? first\b|test strategy\b|security first\b|architecture\b|layered architecture\b|feature[-\s]?based\b|non[-\s]?goal\b|앞으로\b|항상\b|규칙\b/.test(normalized)) {
-    return { ruleId: "project-overrides", input: trimmed };
-  }
-
-  return null;
-}
-
-function renderRuleUpdateBlock(input: {
-  readonly ruleId: string;
-  readonly instruction: string;
-  readonly timestamp: string;
-}): string {
-  return [
-    "",
-    `## Update ${input.timestamp}`,
-    "",
-    `- Source instruction: ${input.instruction}`,
-    `- Rule: ${input.ruleId}`,
-    `- Guidance: ${input.instruction}`,
-    "",
-  ].join("\n");
-}
-
-function renderRuleChangeLogEntry(input: {
-  readonly ruleId: string;
-  readonly instruction: string;
-  readonly timestamp: string;
-  readonly source: string;
-}): string {
-  return [
-    "",
-    `## ${input.timestamp}`,
-    "",
-    `- Source: ${input.source}`,
-    `- Target rule: ${input.ruleId}`,
-    `- Instruction: ${input.instruction}`,
-    "",
-  ].join("\n");
 }
 
 function formatWorkflowRecoverSummary(
@@ -3275,22 +3255,6 @@ function renderSkillMarkdown(
   ].join("\n");
 }
 
-function renderRuleMarkdown(
-  ruleId: string,
-  title: string,
-  description: string,
-): string {
-  return [
-    `# ${title}`,
-    "",
-    `- Id: ${ruleId}`,
-    "",
-    "## Description",
-    description,
-    "",
-  ].join("\n");
-}
-
 function createDecisionEvidenceSummary(evidence: readonly EvidenceRecord[]): string {
   return summarizeEvidence(evidence);
 }
@@ -3615,17 +3579,18 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
 
 async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Promise<CliResult> {
   const rootDir = process.cwd();
-  const naturalLanguageRuleUpdate = detectNaturalLanguageRuleUpdate(command.request);
-  if (naturalLanguageRuleUpdate !== null) {
-    await ensureInitializedProject(rootDir);
-    return await runRuleUpdateCommand({
-      kind: "rule:update",
-      ruleId: naturalLanguageRuleUpdate.ruleId,
-      input: naturalLanguageRuleUpdate.input,
-    });
-  }
-
   const analysis = analyzeRequest(command.request);
+
+  if (analysis.category === "rule_change_candidate") {
+    return {
+      exitCode: 0,
+      output: [
+        formatRuleApprovalSummary(analysis),
+        "",
+        formatRequestAnalysisSummary(analysis),
+      ].join("\n"),
+    };
+  }
 
   const issueCreatingModes: readonly RequestAnalysis["executionMode"][] = [
     "create_issue",
@@ -4096,29 +4061,79 @@ async function runSkillListCommand(): Promise<CliResult> {
 async function runRuleCreateCommand(command: ParsedRuleCreateCommand): Promise<CliResult> {
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
-  const paths = resolveRuleScaffoldPaths(rootDir, command.ruleId);
-  const createdDirectories: string[] = [];
-  const createdFiles: string[] = [];
-  const skippedFiles: string[] = [];
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
+  const resolution = await resolveRuleTarget(rootDir, {
+    requestedRuleId: command.ruleId,
+    title: command.title,
+    description: command.description,
+  });
 
-  if (await ensureDirectory(paths.rulesDir)) {
-    createdDirectories.push(".flowness/rules");
+  if (resolution.status === "ambiguous") {
+    return {
+      exitCode: 1,
+      output: [
+        "Multiple matching rules were found. Specify the rule you want to update:",
+        ...resolution.ambiguousMatches.map((candidate) => `- ${candidate.ruleId}: ${candidate.title} (${candidate.path})`),
+      ].join("\n"),
+    };
   }
 
-  const ruleWriteResult = await writeTextFile(
-    paths.ruleFile,
-    renderRuleMarkdown(command.ruleId, command.title, command.description),
-    command.force,
+  const targetRuleId = resolution.targetRuleId;
+  const targetPath = resolution.targetPath;
+  await ensureDirectory(dirname(targetPath));
+
+  const title = resolution.matchedRule?.title ?? command.title;
+  const document = renderRuleDocumentMarkdown({
+    title,
+    ruleId: targetRuleId,
+    scope: command.description,
+    policy: [
+      command.description,
+      `Keep ${targetRuleId} current-state only for ${analysis.projectName}.`,
+      "Record future history in rule-update-log.md.",
+    ],
+    examples: [
+      `Use ${targetRuleId} when the request matches ${title}.`,
+      resolution.matchedRule === null
+        ? `Create or refresh the rule file at ${targetPath}.`
+        : `Refresh the existing rule at ${resolution.matchedRule.path} instead of creating a duplicate.`,
+    ],
+    lastUpdated: new Date().toISOString(),
+    notes: [
+      resolution.status === "matched"
+        ? "Matched an existing rule and refreshed it instead of creating a duplicate."
+        : "Created a new current-state rule file.",
+    ],
+  });
+
+  await writeTextFile(targetPath, document, true);
+  const ruleUpdateLogPath = await ensureRuleUpdateLog(rootDir);
+  await appendTextFile(
+    ruleUpdateLogPath,
+    renderRuleUpdateLogEntry({
+      timestamp: new Date().toISOString(),
+      source: "rule:create",
+      action: resolution.status === "matched" ? "updated" : "created",
+      requestedRuleId: command.ruleId,
+      resolvedRuleId: targetRuleId,
+      targetPath,
+      instruction: command.description,
+    }),
   );
-  if (ruleWriteResult === "written") {
-    createdFiles.push(`.flowness/rules/${command.ruleId}.md`);
-  } else {
-    skippedFiles.push(`.flowness/rules/${command.ruleId}.md`);
-  }
 
   return {
     exitCode: 0,
-    output: formatRuleSummary(command.ruleId, command.title, paths.ruleFile, createdFiles, skippedFiles),
+    output: formatRuleUpdateSummary({
+      ruleId: targetRuleId,
+      filePath: targetPath,
+      logPath: null,
+      action: resolution.status === "matched" ? "updated" : "created",
+      requestedRuleId: command.ruleId,
+      resolvedRuleId: targetRuleId,
+      ruleUpdateLogPath,
+      matchedExistingRule: resolution.status === "matched",
+    }),
   };
 }
 
@@ -4197,7 +4212,12 @@ async function collectRuleMarkdownIds(directory: string, relativePrefix = ""): P
       continue;
     }
 
-    if (!entry.isFile() || !entry.name.endsWith(".md") || entry.name === "README.md") {
+    if (
+      !entry.isFile()
+      || !entry.name.endsWith(".md")
+      || entry.name === "README.md"
+      || entry.name === "rule-update-log.md"
+    ) {
       continue;
     }
 
@@ -4207,87 +4227,427 @@ async function collectRuleMarkdownIds(directory: string, relativePrefix = ""): P
   return ruleIds;
 }
 
+interface RuleDocumentSpec {
+  readonly title: string;
+  readonly ruleId: string;
+  readonly scope: string;
+  readonly policy: readonly string[];
+  readonly examples: readonly string[];
+  readonly lastUpdated: string;
+  readonly notes?: readonly string[];
+}
+
+interface RuleMetadata {
+  readonly ruleId: string;
+  readonly title: string;
+  readonly path: string;
+  readonly searchText: string;
+  readonly tokens: readonly string[];
+}
+
+interface RuleTargetResolution {
+  readonly status: "matched" | "new" | "ambiguous";
+  readonly requestedRuleId: string;
+  readonly targetRuleId: string;
+  readonly targetPath: string;
+  readonly matchedRule: RuleMetadata | null;
+  readonly ambiguousMatches: readonly RuleMetadata[];
+  readonly reason: string;
+}
+
+const ruleMatchStopwords = new Set([
+  "and",
+  "the",
+  "for",
+  "with",
+  "from",
+  "into",
+  "that",
+  "this",
+  "then",
+  "only",
+  "keep",
+  "use",
+  "current",
+  "project",
+  "file",
+  "files",
+  "rule",
+  "rules",
+  "policy",
+  "update",
+  "updated",
+  "create",
+  "created",
+  "change",
+  "changes",
+  "instruction",
+  "guidance",
+  "existing",
+  "new",
+  "manual",
+  "approval",
+  "approved",
+]);
+
+function normalizeRuleSearchText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeRuleSearchText(value: string): readonly string[] {
+  const normalized = normalizeRuleSearchText(value);
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  return [...new Set(
+    normalized
+      .split(" ")
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0 && !ruleMatchStopwords.has(token)),
+  )];
+}
+
+function parseRuleMetadata(rulePath: string, content: string): RuleMetadata {
+  const ruleId = rulePath.replace(/\.md$/, "");
+  const title = extractMarkdownHeading(content) ?? humanizeRuleId(ruleId);
+  const searchText = normalizeRuleSearchText([ruleId, title, content].join(" "));
+  return {
+    ruleId,
+    title,
+    path: rulePath,
+    searchText,
+    tokens: tokenizeRuleSearchText(searchText),
+  };
+}
+
+async function collectRuleMetadata(directory: string, relativePrefix = ""): Promise<RuleMetadata[]> {
+  if (!(await pathExists(directory))) {
+    return [];
+  }
+
+  const entries = await readdir(directory, { withFileTypes: true });
+  const metadata: RuleMetadata[] = [];
+  for (const entry of entries) {
+    const relativePath = relativePrefix.length === 0 ? entry.name : `${relativePrefix}/${entry.name}`;
+    const absolutePath = joinPaths(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      metadata.push(...await collectRuleMetadata(absolutePath, relativePath));
+      continue;
+    }
+
+    if (
+      !entry.isFile()
+      || !entry.name.endsWith(".md")
+      || entry.name === "README.md"
+      || entry.name === "rule-update-log.md"
+    ) {
+      continue;
+    }
+
+    const content = await readTextFile(absolutePath);
+    metadata.push(parseRuleMetadata(relativePath, content));
+  }
+
+  return metadata;
+}
+
+function scoreRuleCandidate(query: string, candidate: RuleMetadata, requestedRuleId: string): number {
+  const normalizedQuery = normalizeRuleSearchText(query);
+  if (normalizedQuery.length === 0) {
+    return 0;
+  }
+
+  const queryTokens = tokenizeRuleSearchText(normalizedQuery);
+  if (queryTokens.length === 0) {
+    return 0;
+  }
+
+  const queryTokenSet = new Set(queryTokens);
+  const candidateTokenSet = new Set(candidate.tokens);
+  const intersection = [...queryTokenSet].filter((token) => candidateTokenSet.has(token));
+  const normalizedCandidateRuleId = normalizeRuleId(candidate.ruleId);
+  const normalizedRequestedRuleId = normalizeRuleId(requestedRuleId);
+  const normalizedCandidateTitle = normalizeRuleSearchText(candidate.title);
+
+  let score = 0;
+  if (candidate.ruleId === normalizedRequestedRuleId) {
+    score += 100;
+  }
+  if (normalizedQuery === normalizedCandidateRuleId || normalizedQuery === normalizedCandidateTitle) {
+    score += 80;
+  }
+  if (normalizedQuery.includes(normalizedCandidateRuleId) || normalizedCandidateRuleId.includes(normalizedQuery)) {
+    score += 35;
+  }
+  if (normalizedQuery.includes(normalizedCandidateTitle) || normalizedCandidateTitle.includes(normalizedQuery)) {
+    score += 30;
+  }
+  if (intersection.length > 0) {
+    score += (intersection.length / queryTokens.length) * 50;
+    score += (intersection.length / Math.max(candidate.tokens.length, 1)) * 20;
+  }
+
+  return score;
+}
+
+async function resolveRuleTarget(rootDir: string, input: {
+  readonly requestedRuleId: string;
+  readonly title: string;
+  readonly description: string;
+}): Promise<RuleTargetResolution> {
+  const requestedRuleId = normalizeRuleId(input.requestedRuleId);
+  const directPath = resolveRuleScaffoldPaths(rootDir, requestedRuleId).ruleFile;
+  if (await pathExists(directPath)) {
+    const content = await readTextFile(directPath);
+    const metadata = parseRuleMetadata(`${requestedRuleId}.md`, content);
+    return {
+      status: "matched",
+      requestedRuleId,
+      targetRuleId: requestedRuleId,
+      targetPath: directPath,
+      matchedRule: metadata,
+      ambiguousMatches: [],
+      reason: "Matched the requested rule id exactly.",
+    };
+  }
+
+  const candidates = await collectRuleMetadata(resolveWorkspacePaths(rootDir).agentRulesDir);
+  const query = [input.requestedRuleId, input.title, input.description].filter((value) => value.trim().length > 0).join(" ");
+  const scoredCandidates = candidates
+    .map((candidate) => ({
+      candidate,
+      score: scoreRuleCandidate(query, candidate, requestedRuleId),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.candidate.ruleId.localeCompare(right.candidate.ruleId));
+
+  const bestMatch = scoredCandidates[0];
+  const secondBest = scoredCandidates[1];
+  if (bestMatch !== undefined && bestMatch.score >= 60 && (secondBest === undefined || bestMatch.score - secondBest.score >= 8)) {
+    const targetPath = joinPaths(rootDir, ".flowness", "rules", `${bestMatch.candidate.ruleId}.md`);
+    return {
+      status: "matched",
+      requestedRuleId,
+      targetRuleId: bestMatch.candidate.ruleId,
+      targetPath,
+      matchedRule: bestMatch.candidate,
+      ambiguousMatches: [],
+      reason: "Matched an existing rule with a strong similarity score.",
+    };
+  }
+
+  if (bestMatch !== undefined && secondBest !== undefined && bestMatch.score >= 45 && bestMatch.score - secondBest.score < 8) {
+    return {
+      status: "ambiguous",
+      requestedRuleId,
+      targetRuleId: requestedRuleId,
+      targetPath: directPath,
+      matchedRule: null,
+      ambiguousMatches: scoredCandidates.slice(0, 3).map((entry) => entry.candidate),
+      reason: "Multiple existing rules matched this request closely.",
+    };
+  }
+
+  return {
+    status: "new",
+    requestedRuleId,
+    targetRuleId: requestedRuleId,
+    targetPath: directPath,
+    matchedRule: null,
+    ambiguousMatches: [],
+    reason: "No existing rule matched strongly enough to reuse.",
+  };
+}
+
+function renderRuleDocumentMarkdown(spec: RuleDocumentSpec): string {
+  return [
+    `# ${spec.title}`,
+    "",
+    `- Rule ID: ${spec.ruleId}`,
+    "",
+    "## Scope",
+    spec.scope,
+    "",
+    "## Policy",
+    ...spec.policy.map((item) => `- ${item}`),
+    "",
+    "## Examples",
+    ...spec.examples.map((item) => `- ${item}`),
+    "",
+    "## Last Updated",
+    `- ${spec.lastUpdated}`,
+    ...(spec.notes === undefined || spec.notes.length === 0
+      ? []
+      : [
+          "",
+          "## Notes",
+          ...spec.notes.map((item) => `- ${item}`),
+        ]),
+    "",
+  ].join("\n");
+}
+
+function renderRuleUpdateLogMarkdown(): string {
+  return [
+    "# Rule Update Log",
+    "",
+    "- Rule ID: rule-update-log",
+    "",
+    "## Scope",
+    "Append-only history for approved rule changes and rule file creation.",
+    "",
+    "## Policy",
+    "- Record the rule id, source request, approval path, and target file for each change.",
+    "- Keep this log append-only.",
+    "- Do not add history blocks inside individual rule files.",
+    "- Use the current-state rule file as the single source of truth for each rule.",
+    "",
+    "## Examples",
+    "- Approved `tech/react` convention update.",
+    "- Added `performance-improvement.md` after init.",
+    "",
+    "## Entries",
+    "- None yet.",
+    "",
+    "## Last Updated",
+    `- ${new Date().toISOString()}`,
+    "",
+  ].join("\n");
+}
+
+function renderRuleUpdateLogEntry(input: {
+  readonly timestamp: string;
+  readonly source: string;
+  readonly action: "created" | "updated";
+  readonly requestedRuleId: string;
+  readonly resolvedRuleId: string;
+  readonly targetPath: string;
+  readonly instruction: string;
+}): string {
+  return [
+    "",
+    `## ${input.timestamp}`,
+    "",
+    `- Source: ${input.source}`,
+    `- Action: ${input.action}`,
+    `- Requested rule: ${input.requestedRuleId}`,
+    `- Resolved rule: ${input.resolvedRuleId}`,
+    `- Target file: ${input.targetPath}`,
+    `- Instruction: ${input.instruction}`,
+    "",
+  ].join("\n");
+}
+
+async function ensureRuleUpdateLog(rootDir: string): Promise<string> {
+  const logPath = joinPaths(rootDir, ".flowness", "rules", "rule-update-log.md");
+  if (!(await pathExists(logPath))) {
+    await writeTextFile(logPath, renderRuleUpdateLogMarkdown(), false);
+  }
+
+  return logPath;
+}
+
 async function runRuleUpdateCommand(command: ParsedRuleUpdateCommand): Promise<CliResult> {
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
 
   const timestamp = new Date().toISOString();
-  const rulePaths = resolveRuleScaffoldPaths(rootDir, command.ruleId);
-  const ruleTitle = humanizeRuleId(command.ruleId);
-  const changeLogPath = joinPaths(rootDir, ".flowness", "rules", "change-log.md");
-  const ruleExists = await pathExists(rulePaths.ruleFile);
+  const config = await readProjectConfig(rootDir);
+  const analysis = await renderProjectAnalysis(rootDir, config.projectName);
+  const resolution = await resolveRuleTarget(rootDir, {
+    requestedRuleId: command.ruleId,
+    title: humanizeRuleId(command.ruleId),
+    description: command.input,
+  });
 
-  if (!ruleExists) {
-    await writeTextFile(
-      rulePaths.ruleFile,
-      renderRuleMarkdown(command.ruleId, ruleTitle, `Append-only rule updates for ${ruleTitle}.`),
-      false,
-    );
-  }
-
-  await appendTextFile(
-    rulePaths.ruleFile,
-    renderRuleUpdateBlock({
-      ruleId: command.ruleId,
-      instruction: command.input,
-      timestamp,
-    }),
-  );
-
-  if (!(await pathExists(changeLogPath))) {
-    await writeTextFile(
-      changeLogPath,
-      [
-        "# Rule Change Log",
-        "",
-        "- Append-only history of rule updates and overrides.",
-        "- Every update should record the source instruction, target rule file, and why it changed.",
-        "",
-        "## Entries",
-        "",
+  if (resolution.status === "ambiguous") {
+    return {
+      exitCode: 1,
+      output: [
+        "Multiple matching rules were found. Specify the rule you want to update:",
+        ...resolution.ambiguousMatches.map((candidate) => `- ${candidate.ruleId}: ${candidate.title} (${candidate.path})`),
       ].join("\n"),
-      false,
-    );
+    };
   }
 
+  const targetRuleId = resolution.targetRuleId;
+  const targetPath = resolution.targetPath;
+  await ensureDirectory(dirname(targetPath));
+
+  const documentTitle = resolution.matchedRule?.title ?? humanizeRuleId(targetRuleId);
+  const document = renderRuleDocumentMarkdown({
+    title: documentTitle,
+    ruleId: targetRuleId,
+    scope: `Current guidance for ${documentTitle}.`,
+    policy: [
+      command.input,
+      "Keep this file current-state only.",
+      "Record future changes in rule-update-log.md.",
+    ],
+    examples: [
+      `Apply ${documentTitle} when the request matches ${targetRuleId}.`,
+      resolution.matchedRule === null
+        ? `Create or refresh ${targetRuleId} directly from the approved update request.`
+        : `Refresh the existing rule at ${resolution.matchedRule.path} instead of creating a duplicate.`,
+    ],
+    lastUpdated: timestamp,
+    notes: [
+      resolution.status === "matched"
+        ? "Matched an existing rule and refreshed it in place."
+        : "Created a new current-state rule file from the approved update request.",
+    ],
+  });
+
+  await writeTextFile(targetPath, document, true);
+
+  const ruleUpdateLogPath = await ensureRuleUpdateLog(rootDir);
   await appendTextFile(
-    changeLogPath,
-    renderRuleChangeLogEntry({
-      ruleId: command.ruleId,
-      instruction: command.input,
+    ruleUpdateLogPath,
+    renderRuleUpdateLogEntry({
       timestamp,
-      source: command.issueId ?? "direct command",
+      source: command.issueId ?? "rule:update",
+      action: resolution.status === "matched" ? "updated" : "created",
+      requestedRuleId: command.ruleId,
+      resolvedRuleId: targetRuleId,
+      targetPath,
+      instruction: command.input,
     }),
   );
 
   let issueLogPath: string | null = null;
   if (command.issueId !== undefined) {
     const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
-    const config = await readProjectConfig(rootDir);
-    const analysis = await renderProjectAnalysis(rootDir, config.projectName);
     const logEntry = createLogEntry({
       timestamp,
       step: "Rule Updated",
       actions: [
-        `Updated rule ${command.ruleId}.`,
+        `Updated rule ${targetRuleId}.`,
         `Instruction: ${command.input}`,
-        `Change log: ${changeLogPath}`,
+        `Rule update log: ${ruleUpdateLogPath}`,
       ],
       evidence: [
         createEvidenceRecord({
           kind: "file",
-          title: `rules/${command.ruleId}.md`,
-          location: rulePaths.ruleFile,
+          title: `rules/${targetRuleId}.md`,
+          location: targetPath,
           detail: command.input,
         }),
         createEvidenceRecord({
           kind: "file",
-          title: "rules/change-log.md",
-          location: changeLogPath,
+          title: "rules/rule-update-log.md",
+          location: ruleUpdateLogPath,
           detail: command.input,
         }),
       ],
-      summary: `Rule ${command.ruleId} was updated.`,
+      summary: `Rule ${targetRuleId} was updated.`,
       nextStep: workspace.workflowState.currentStep || null,
     });
 
@@ -4307,11 +4667,14 @@ async function runRuleUpdateCommand(command: ParsedRuleUpdateCommand): Promise<C
   return {
     exitCode: 0,
     output: formatRuleUpdateSummary({
-      ruleId: command.ruleId,
-      filePath: rulePaths.ruleFile,
+      ruleId: targetRuleId,
+      filePath: targetPath,
       logPath: issueLogPath,
-      changeLogPath,
-      action: ruleExists ? "updated" : "created",
+      action: resolution.status === "matched" ? "updated" : "created",
+      requestedRuleId: command.ruleId,
+      resolvedRuleId: targetRuleId,
+      ruleUpdateLogPath,
+      matchedExistingRule: resolution.status === "matched",
     }),
   };
 }
@@ -4756,7 +5119,8 @@ async function runValidateCommand(): Promise<CliResult> {
     ".flowness/rules/git.md",
     ".flowness/rules/commit-policy.md",
     ".flowness/rules/project-overrides.md",
-    ".flowness/rules/change-log.md",
+    ".flowness/rules/performance-improvement.md",
+    ".flowness/rules/rule-update-log.md",
     ".flowness/rules/tech/README.md",
     ".flowness/rules/tech/java.md",
     ".flowness/rules/tech/javascript.md",
@@ -4776,6 +5140,7 @@ async function runValidateCommand(): Promise<CliResult> {
     ".flowness/workflows/README.md",
     ".flowness/skills/README.md",
     ".flowness/templates/README.md",
+    "docs/troubleshooting/performance-improvements.md",
     "docs/PRD.md",
     "docs/ARD.md",
   ];

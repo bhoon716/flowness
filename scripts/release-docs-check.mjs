@@ -144,6 +144,7 @@ function main() {
   ], "docs/templates/release-notes.md");
 
   ensureAllIncludes(rootReadme, [
+    "talk to the coding agent naturally",
     "flowness init",
     "flowness run",
     "flowness request:create",
@@ -163,6 +164,7 @@ function main() {
   ], "README.md");
 
   ensureAllIncludes(cliReadme, [
+    "natural-language requests should go through the coding agent first",
     "flowness init",
     "flowness run",
     "flowness request:create",

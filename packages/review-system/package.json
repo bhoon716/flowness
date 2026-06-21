@@ -1,6 +1,6 @@
 {
   "name": "@flowness-labs/review-system",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,7 +14,7 @@
     "dist"
   ],
   "dependencies": {
-    "@flowness-labs/core": "^0.2.3"
+    "@flowness-labs/core": "^0.2.4"
   },
   "scripts": {
     "build": "tsc -b",

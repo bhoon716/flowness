@@ -12,7 +12,7 @@ Use this template for a single release. Keep it human-readable and avoid pasting
 
 ## Changed
 
-- Behavior updates, defaults, or documentation changes.
+- Behavior updates, defaults, or documentation changes, including workflow reordering after `flowness init`, rule approval prompts, and rule history/log changes.
 
 ## Fixed
 
@@ -37,4 +37,3 @@ Use this template for a single release. Keep it human-readable and avoid pasting
 ## Known Limitations
 
 - Anything intentionally left out or deferred.
-

@@ -48,6 +48,7 @@ test("release docs and changelog files are present and aligned", async () => {
   assert.ok(checklist.length > 0);
   assert.ok(releaseNotesTemplate.length > 0);
 
+  assert.match(rootReadme, /talk to the coding agent naturally/i);
   assert.match(rootReadme, /What It Does/);
   assert.match(rootReadme, /Lightweight Navigation/);
   assert.match(rootReadme, /Upgrade Existing Projects/);
@@ -58,6 +59,7 @@ test("release docs and changelog files are present and aligned", async () => {
   assert.match(rootReadme, /flowness upgrade --dry-run/);
   assert.match(rootReadme, /flowness upgrade --apply/);
 
+  assert.match(cliReadme, /natural-language requests should go through the coding agent first/i);
   assert.match(cliReadme, /Core Commands/);
   assert.match(cliReadme, /## Command Reference/);
   assert.match(cliReadme, /Upgrade Path/);
