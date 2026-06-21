@@ -65,6 +65,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.ok(result.createdFiles.includes(".flowness/scripts/flowness-runner.ts"));
   assert.ok(result.createdFiles.includes(".flowness/scripts/workflow-guard.ts"));
   assert.ok(result.createdFiles.includes("docs/troubleshooting/performance-improvements.md"));
+  assert.ok(result.createdFiles.includes("docs/troubleshooting/evidence-summary.md"));
   assert.ok(result.createdFiles.includes("docs/PRD.md"));
   assert.ok(result.createdFiles.includes("docs/ARD.md"));
   assert.ok(result.createdFiles.includes(".flowness/workflows/feature-development/07-commit.md"));
@@ -78,7 +79,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.equal(await exists(join(rootDir, ".codex")), false);
 
   const agents = await readFile(join(rootDir, "AGENTS.md"), "utf8");
-  assert.match(agents, /Keep this file short\. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, or manual escape hatches\./);
+  assert.match(agents, /Keep this file short\. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, (?:inspection, )?or manual escape hatches\./);
   assert.match(agents, /flowness locate "<task description>"/);
   assert.match(agents, /flowness review:run/);
   assert.match(agents, /flowness test --summary/);
@@ -166,6 +167,35 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(ard, /## Test Strategy \/ Security/);
   assert.match(ard, /\[\s*Navigation\s*\]\(\.\.\/\.flowness\/navigation\.md\)/);
 
+  const performanceDoc = await readFile(join(rootDir, "docs/troubleshooting/performance-improvements.md"), "utf8");
+  assert.match(performanceDoc, /## Compact Summary/);
+  assert.match(performanceDoc, /## Baseline/);
+  assert.match(performanceDoc, /## Measurement/);
+  assert.match(performanceDoc, /## Troubleshooting/);
+  assert.match(performanceDoc, /## Evidence/);
+  assert.match(performanceDoc, /scenario/);
+  assert.match(performanceDoc, /baseline/);
+  assert.match(performanceDoc, /after\/result/);
+  assert.match(performanceDoc, /workload or iterations/);
+  assert.match(performanceDoc, /key metric/);
+  assert.match(performanceDoc, /raw report path/);
+  assert.match(performanceDoc, /limitations/);
+  assert.match(performanceDoc, /follow-up issue/);
+  assert.match(performanceDoc, /same workload after the change/);
+  assert.match(performanceDoc, /same metric whenever possible/);
+  assert.match(performanceDoc, /Evidence Summary/);
+
+  const evidenceSummaryDoc = await readFile(join(rootDir, "docs/troubleshooting/evidence-summary.md"), "utf8");
+  assert.match(evidenceSummaryDoc, /## Required Fields/);
+  assert.match(evidenceSummaryDoc, /## Review Rules/);
+  assert.match(evidenceSummaryDoc, /## When To Use/);
+  assert.match(evidenceSummaryDoc, /scenario/);
+  assert.match(evidenceSummaryDoc, /baseline/);
+  assert.match(evidenceSummaryDoc, /after\/result/);
+  assert.match(evidenceSummaryDoc, /workload or iterations/);
+  assert.match(evidenceSummaryDoc, /raw report path/);
+  assert.match(evidenceSummaryDoc, /follow-up issue/);
+
   const techReadme = await readFile(join(rootDir, ".flowness/rules/tech/README.md"), "utf8");
   assert.match(techReadme, /# Tech Rules/);
   assert.match(techReadme, /java\.md/);
@@ -198,7 +228,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.4");
+  assert.equal(manifest.version, "0.2.5");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.contextFiles.activeIssue, ".flowness/state/active-issue.md");
   assert.equal(manifest.contextFiles.navigation, ".flowness/navigation.md");
@@ -270,12 +300,25 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   const reviewTemplate = await readFile(join(rootDir, ".flowness/templates/review-template.md"), "utf8");
   assert.match(reviewTemplate, /## Target/);
   assert.match(reviewTemplate, /## Perspective Results/);
+  assert.match(reviewTemplate, /Blocking: yes \/ no/);
+  assert.match(reviewTemplate, /Deferrable: yes \/ no/);
+  assert.match(reviewTemplate, /Hard blockers/);
+  assert.match(reviewTemplate, /Deferrable blockers/);
+  assert.match(reviewTemplate, /Follow-up issue: required or none/);
+  assert.match(reviewTemplate, /User approval: required before commit/);
   assert.match(reviewTemplate, /## Follow-up/);
 
   const findingTemplate = await readFile(join(rootDir, ".flowness/templates/finding-template.md"), "utf8");
   assert.match(findingTemplate, /## Perspective/);
   assert.match(findingTemplate, /## Severity/);
+  assert.match(findingTemplate, /## Blocking/);
+  assert.match(findingTemplate, /## Deferrable/);
+  assert.match(findingTemplate, /## Status/);
+  assert.match(findingTemplate, /open \| addressed \| closed \| deferred \| accepted-risk/);
+  assert.match(findingTemplate, /## Blocker kind/);
   assert.match(findingTemplate, /## File\/path/);
+  assert.match(findingTemplate, /## Follow-up issue/);
+  assert.match(findingTemplate, /## User approval/);
   assert.match(findingTemplate, /Requires follow-up issue/);
 
   for (const workflowId of [

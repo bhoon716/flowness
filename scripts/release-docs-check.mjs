@@ -53,6 +53,24 @@ function ensureAllIncludes(text, expectedValues, label) {
   }
 }
 
+function ensurePackageMetadata(manifest, label) {
+  const expectedRepositoryUrl = "git+https://github.com/bhoon716/flowness.git";
+  const expectedIssuesUrl = "https://github.com/bhoon716/flowness/issues";
+  const expectedHomepage = "https://github.com/bhoon716/flowness#readme";
+
+  if (manifest.repository?.url !== expectedRepositoryUrl) {
+    throw new Error(`${label} has an unexpected repository URL: ${manifest.repository?.url ?? "missing"}`);
+  }
+
+  if (manifest.bugs?.url !== expectedIssuesUrl) {
+    throw new Error(`${label} has an unexpected issues URL: ${manifest.bugs?.url ?? "missing"}`);
+  }
+
+  if (manifest.homepage !== expectedHomepage) {
+    throw new Error(`${label} has an unexpected homepage: ${manifest.homepage ?? "missing"}`);
+  }
+}
+
 function collectHelpUsageLines(helpOutput) {
   return helpOutput
     .split(/\r?\n/)
@@ -96,17 +114,33 @@ function ensureSameLines(actualLines, expectedLines, label) {
 function main() {
   const rootReadme = readText(join(repoRoot, "README.md"));
   const cliReadme = readText(join(repoRoot, "packages", "cli", "README.md"));
+  const coreReadme = readText(join(repoRoot, "packages", "core", "README.md"));
+  const chineseReadme = readText(join(repoRoot, "README.zh-CN.md"));
   const changelog = readText(join(repoRoot, "CHANGELOG.md"));
   const releaseChecklist = readText(join(repoRoot, "docs", "release-checklist.md"));
   const releaseNotesTemplate = readText(join(repoRoot, "docs", "templates", "release-notes.md"));
 
-  const rootPackage = JSON.parse(readText(join(repoRoot, "package.json")));
-  const cliPackage = JSON.parse(readText(join(repoRoot, "packages", "cli", "package.json")));
-  if (rootPackage.version !== cliPackage.version) {
-    throw new Error(`Package versions do not match: root=${rootPackage.version}, cli=${cliPackage.version}`);
-  }
+  const packageEntries = [
+    ["package.json", JSON.parse(readText(join(repoRoot, "package.json")))],
+    ["packages/cli/package.json", JSON.parse(readText(join(repoRoot, "packages", "cli", "package.json")))],
+    ["packages/core/package.json", JSON.parse(readText(join(repoRoot, "packages", "core", "package.json")))],
+    ["packages/config-system/package.json", JSON.parse(readText(join(repoRoot, "packages", "config-system", "package.json")))],
+    ["packages/decision-system/package.json", JSON.parse(readText(join(repoRoot, "packages", "decision-system", "package.json")))],
+    ["packages/evidence-system/package.json", JSON.parse(readText(join(repoRoot, "packages", "evidence-system", "package.json")))],
+    ["packages/issue-system/package.json", JSON.parse(readText(join(repoRoot, "packages", "issue-system", "package.json")))],
+    ["packages/log-system/package.json", JSON.parse(readText(join(repoRoot, "packages", "log-system", "package.json")))],
+    ["packages/review-system/package.json", JSON.parse(readText(join(repoRoot, "packages", "review-system", "package.json")))],
+    ["packages/templates/package.json", JSON.parse(readText(join(repoRoot, "packages", "templates", "package.json")))],
+    ["packages/workflow-engine/package.json", JSON.parse(readText(join(repoRoot, "packages", "workflow-engine", "package.json")))],
+  ];
 
-  const version = rootPackage.version;
+  const version = packageEntries[0][1].version;
+  for (const [label, manifest] of packageEntries) {
+    if (manifest.version !== version) {
+      throw new Error(`Package versions do not match: ${label}=${manifest.version}, expected=${version}`);
+    }
+    ensurePackageMetadata(manifest, label);
+  }
   ensureIncludes(changelog, "## [Unreleased]", "CHANGELOG.md");
   ensureIncludes(changelog, `## [${version}]`, "CHANGELOG.md");
   ensureAllIncludes(changelog, [
@@ -129,6 +163,8 @@ function main() {
     "flowness test --summary",
     "flowness audit --changed",
     "flowness upgrade",
+    "docs/troubleshooting/performance-improvements.md",
+    "docs/troubleshooting/evidence-summary.md",
   ], "docs/release-checklist.md");
 
   ensureAllIncludes(releaseNotesTemplate, [
@@ -144,27 +180,38 @@ function main() {
   ], "docs/templates/release-notes.md");
 
   ensureAllIncludes(rootReadme, [
-    "talk to the coding agent naturally",
-    "flowness init",
-    "flowness run",
-    "flowness request:create",
-    "flowness issue:create",
-    "flowness step",
-    "flowness workflow:step",
-    "flowness status",
-    "flowness review:run",
+    "What Flowness Is",
+    "The Normal Flow",
+    "Install",
+    "Initialize Once",
+    "Escape Hatches",
+    "Docs",
     "flowness locate",
     "flowness test --summary",
     "flowness audit --changed",
+    "flowness review:run",
     "flowness upgrade --dry-run",
     "flowness upgrade --apply",
-    "CHANGELOG.md",
-    "docs/release-checklist.md",
-    "docs/templates/release-notes.md",
+    "Add login validation.",
+    "Review the current diff.",
+    "Refactor UserService safely.",
+    "From now on, require tests for performance improvements.",
+    "README.zh-CN.md",
+    "docs/troubleshooting/performance-improvements.md",
+    "docs/troubleshooting/evidence-summary.md",
   ], "README.md");
 
   ensureAllIncludes(cliReadme, [
-    "natural-language requests should go through the coding agent first",
+    "Package at a Glance",
+    "Start Here",
+    "Core Concepts",
+    "Escape Hatches",
+    "Common Commands",
+    "Command Reference",
+    "Upgrade Path",
+    "Release Docs",
+    "In normal use, run `flowness init` once",
+    "work through the coding agent in natural language",
     "flowness init",
     "flowness run",
     "flowness request:create",
@@ -180,8 +227,36 @@ function main() {
     "flowness upgrade --apply",
     "CHANGELOG.md",
     "release-checklist.md",
+    "README.zh-CN.md",
+    "docs/troubleshooting/performance-improvements.md",
+    "docs/troubleshooting/evidence-summary.md",
     "## Command Reference",
   ], "packages/cli/README.md");
+
+  ensureAllIncludes(coreReadme, [
+    "conversational harness",
+    "flowness init",
+    "natural language",
+    "README.zh-CN.md",
+    "docs/troubleshooting/performance-improvements.md",
+    "docs/troubleshooting/evidence-summary.md",
+    "GitHub repository",
+    "Issues",
+    "Homepage",
+  ], "packages/core/README.md");
+
+  ensureAllIncludes(chineseReadme, [
+    "Flowness 是什么",
+    "安装与初始化",
+    "对话式工作模型",
+    "Review、Issue、证据与规则",
+    "升级已有项目",
+    "Add login validation.",
+    "Review the current diff.",
+    "Refactor UserService safely.",
+    "docs/troubleshooting/performance-improvements.md",
+    "docs/troubleshooting/evidence-summary.md",
+  ], "README.zh-CN.md");
 
   const helpOutput = runHelp();
   const helpUsageLines = collectHelpUsageLines(helpOutput);

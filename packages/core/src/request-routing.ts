@@ -1579,6 +1579,37 @@ function buildPerformanceClarificationQuestions(request: string): readonly Clari
       whatINeedFromYou: "Name the metric that matters most and tell me what baseline we should capture before changes begin.",
     }),
     makeClarificationQuestion({
+      question: "What compact performance evidence summary should we record so the review can judge the result without opening the raw artifact first?",
+      options: [
+        makeClarificationOption(
+          "Option A",
+          "A compact summary with the scenario, baseline, after/result, workload, key metric, raw report path, limitations, and follow-up issue if any.",
+          [
+            "Makes the review quick to judge.",
+            "Keeps the raw artifact linked but not required for first-pass evaluation.",
+          ],
+          [
+            "Takes a little more time to write up.",
+            "Needs discipline to keep the summary compact.",
+          ],
+        ),
+        makeClarificationOption(
+          "Option B",
+          "Raw benchmark or profiling output without a compact summary.",
+          [
+            "Fastest way to attach evidence.",
+            "Useful for rough exploration before the result is stable.",
+          ],
+          [
+            "Harder to review.",
+            "Makes it easier for large raw output to crowd out the actual conclusion.",
+          ],
+        ),
+      ],
+      recommendedDefault: "Option A",
+      whatINeedFromYou: "Give me the scenario, baseline, after/result, workload or iterations, key metric, raw report path, limitations, and any follow-up issue so the review can judge the change quickly.",
+    }),
+    makeClarificationQuestion({
       question: "What measurement constraints, environment differences, or limitations should I record if perfect benchmarking is not feasible?",
       options: [
         makeClarificationOption(
@@ -1901,9 +1932,12 @@ function buildEvidenceRequirements(category: RequestCategory): readonly string[]
       ];
     case "performance_improvement_task":
       return [
+        "Compact performance summary",
         "Baseline measurement",
         "After-change measurement",
+        "Raw benchmark or profiling artifact",
         "Before/after comparison",
+        "Limitations and follow-up issue if any",
       ];
     case "rule_change_candidate":
       return [];
@@ -1946,9 +1980,10 @@ function buildAcceptanceCriteria(category: RequestCategory, request: string, tit
       ];
     case "performance_improvement_task":
       return [
-        "A baseline is recorded before optimization starts.",
+        "A compact summary captures the scenario, baseline, after/result, workload, key metric, raw report path, limitations, and any follow-up issue.",
         "The improvement is measured again after the change.",
-        "The before/after comparison and any limitations are documented.",
+        "The before/after comparison is clear enough to judge without opening the raw artifact first.",
+        "Large raw evidence does not block the review by itself when the compact summary exists.",
       ];
     case "rule_change_candidate":
       return [

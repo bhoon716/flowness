@@ -109,6 +109,7 @@ test("parseCommand handles the new direct aliases", () => {
   const fullAuditCommand = parseCommand(["audit", "--full"]);
   const evidenceCommand = parseCommand(["evidence:add", "--issue", "ISSUE-001-TEST", "--title", "README", "--location", "README.md"]);
   const ruleUpdateCommand = parseCommand(["rule:update", "--id", "tech/react", "--input", "feature-based"]);
+  const issueCreateCommand = parseCommand(["issue:create", "--title", "Follow-up", "--type", "bugfix", "--parent-issue", "ISSUE-001-TEST", "--approval-note", "Accepted risk in review."]);
 
   assert.equal(runCommand.kind, "request:create");
   assert.equal(stepCommand.kind, "workflow:step");
@@ -119,6 +120,7 @@ test("parseCommand handles the new direct aliases", () => {
   assert.equal(fullAuditCommand.kind, "audit");
   assert.equal(evidenceCommand.kind, "evidence:add");
   assert.equal(ruleUpdateCommand.kind, "rule:update");
+  assert.equal(issueCreateCommand.kind, "issue:create");
   if (locateCommand.kind === "locate") {
     assert.equal(locateCommand.query, "request routing");
   }
@@ -133,6 +135,10 @@ test("parseCommand handles the new direct aliases", () => {
   }
   if (evidenceCommand.kind === "evidence:add") {
     assert.equal(evidenceCommand.evidenceKind, "file");
+  }
+  if (issueCreateCommand.kind === "issue:create") {
+    assert.equal(issueCreateCommand.parentIssueId, "ISSUE-001-TEST");
+    assert.equal(issueCreateCommand.approvalNote, "Accepted risk in review.");
   }
 });
 
@@ -287,7 +293,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.4");
+  assert.equal(manifest.version, "0.2.5");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
   assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");
@@ -385,7 +391,7 @@ test("runCli review:run preserves source files and avoids auto-created follow-up
     }
 
     const reportContents = await readFile(join(rootDir, ".flowness", "issues", reviewIssueId, "reviews", latestReportName), "utf8");
-    assert.ok(reportContents.split("\n").length < 120);
+    assert.ok(reportContents.split("\n").length < 180);
   });
 });
 
@@ -431,7 +437,9 @@ test("runCli prompts for natural language rule changes instead of auto-updating"
     const result = await runCli(["run", "React는 feature-based로 작성해"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Rule change candidate detected\./);
+    assert.match(result.output, /현재 rule은 .*입니다\. 앞으로는 .*로 바꿀까요\?/);
     assert.match(result.output, /rule id: tech\/react/i);
+    assert.match(result.output, /Reason: The request changes a durable React convention\./);
     assert.match(result.output, /approval required: yes/i);
     assert.match(result.output, /flowness rule:update --id tech\/react --input/);
     assert.match(result.output, /Rule change candidate: yes/);
@@ -446,6 +454,107 @@ test("runCli prompts for natural language rule changes instead of auto-updating"
     const changeLog = await readFile(join(rootDir, ".flowness", "rules", "rule-update-log.md"), "utf8");
     assert.match(changeLog, /# Rule Update Log/);
     assert.match(changeLog, /- None yet\./);
+  });
+});
+
+test("runCli rule updates reuse matching rules instead of creating duplicates", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-rule-duplicate-"));
+  await seedProject(rootDir);
+
+  const initResult = await runCli(["init", rootDir, "--name", "rule-duplicate-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli(["rule:update", "--id", "frontend-react", "--input", "React feature-based guidance"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Updated rule tech\/react\./);
+    assert.match(result.output, /Requested rule: frontend-react/);
+    assert.match(result.output, /Resolved rule: tech\/react/);
+    assert.match(result.output, /Matched an existing rule instead of creating a duplicate\./);
+
+    assert.equal(await exists(join(rootDir, ".flowness", "rules", "frontend-react.md")), false);
+    assert.ok(await exists(join(rootDir, ".flowness", "rules", "tech", "react.md")));
+
+    const changeLog = await readFile(join(rootDir, ".flowness", "rules", "rule-update-log.md"), "utf8");
+    assert.match(changeLog, /Requested rule: frontend-react/);
+    assert.match(changeLog, /Resolved rule: tech\/react/);
+  });
+});
+
+test("runCli rule create asks for clarification when multiple rules match", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-rule-ambiguous-"));
+  await seedProject(rootDir);
+  await mkdir(join(rootDir, ".flowness", "rules"), { recursive: true });
+  await writeFile(join(rootDir, ".flowness", "rules", "alpha.md"), "# Shared Rule\n\nShared rule guidance.\n", "utf8");
+  await writeFile(join(rootDir, ".flowness", "rules", "beta.md"), "# Shared Rule\n\nShared rule guidance.\n", "utf8");
+
+  const initResult = await runCli(["init", rootDir, "--name", "rule-ambiguous-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli(["rule:create", "--id", "shared-rule", "--title", "Shared Rule", "--description", "Shared rule guidance"]);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /Multiple matching rules were found\. Specify the rule you want to update:/);
+    assert.match(result.output, /Reason: Multiple existing rules matched this request closely\./);
+    assert.match(result.output, /alpha\.md/);
+    assert.match(result.output, /beta\.md/);
+    assert.equal(await exists(join(rootDir, ".flowness", "rules", "shared-rule.md")), false);
+  });
+});
+
+test("runCli issue:create can link a follow-up issue to an existing parent issue", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-followup-"));
+  await seedProject(rootDir);
+
+  const initResult = await runCli(["init", rootDir, "--name", "followup-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const parentResult = await runCli(["issue:create", "--title", "Performance work", "--type", "feature"]);
+    assert.equal(parentResult.exitCode, 0);
+
+    const [parentIssueId] = [...await issueDirectories(rootDir)].sort();
+    if (parentIssueId === undefined) {
+      throw new Error("Expected a parent issue directory.");
+    }
+
+    const childResult = await runCli([
+      "issue:create",
+      "--title",
+      "Benchmark follow-up",
+      "--type",
+      "bugfix",
+      "--parent-issue",
+      parentIssueId,
+      "--approval-note",
+      "Deferred performance concern approved for follow-up.",
+    ]);
+    assert.equal(childResult.exitCode, 0);
+    assert.match(childResult.output, /Parent: ISSUE-001-PERFORMANCE-WORK/);
+    assert.match(childResult.output, /Approval note: Deferred performance concern approved for follow-up\./);
+
+    const issueIds = [...await issueDirectories(rootDir)].sort();
+    assert.equal(issueIds.length, 2);
+
+    const parentIssueJson = JSON.parse(await readFile(join(rootDir, ".flowness", "issues", parentIssueId, "issue.json"), "utf8")) as {
+      readonly issue: { readonly childIssueIds?: readonly string[]; readonly title: string };
+    };
+    const childIssueId = issueIds.find((issueId) => issueId !== parentIssueId);
+    if (childIssueId === undefined) {
+      throw new Error("Expected a follow-up issue directory.");
+    }
+
+    const childIssueJson = JSON.parse(await readFile(join(rootDir, ".flowness", "issues", childIssueId, "issue.json"), "utf8")) as {
+      readonly issue: { readonly parentIssueId?: string | null; readonly title: string };
+    };
+    const parentLog = await readFile(join(rootDir, ".flowness", "logs", `${parentIssueId}.md`), "utf8");
+    const childLog = await readFile(join(rootDir, ".flowness", "logs", `${childIssueId}.md`), "utf8");
+
+    assert.ok(parentIssueJson.issue.childIssueIds?.includes(childIssueId));
+    assert.equal(childIssueJson.issue.parentIssueId, parentIssueId);
+    assert.match(parentLog, /Linked follow-up issue/);
+    assert.match(parentLog, /Approval note: Deferred performance concern approved for follow-up\./);
+    assert.match(childLog, /Approval text was recorded for the follow-up issue\./);
   });
 });
 
@@ -631,7 +740,7 @@ test("runCli upgrade --dry-run reports a plan without writing files", async () =
     const result = await runCli(["upgrade", "--dry-run"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: legacy/);
-        assert.match(result.output, /Target version: 0\.2\.4/);
+        assert.match(result.output, /Target version: 0\.2\.5/);
     assert.match(result.output, /Will regenerate:/);
     assert.match(result.output, /Will add if missing:/);
     assert.match(result.output, /Will patch:/);
@@ -700,7 +809,7 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
     const result = await runCli(["upgrade", "--apply"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: 0\.1\.4/);
-        assert.match(result.output, /Target version: 0\.2\.4/);
+    assert.match(result.output, /Target version: 0\.2\.5/);
     assert.match(result.output, /Backup path:/);
     assert.match(result.output, /Report path:/);
     assert.match(result.output, /Updated files:/);
@@ -724,7 +833,7 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
   assert.match(updatedAgents, /# Custom Intro/);
   assert.match(updatedAgents, /# Custom Footer/);
   assert.match(updatedAgents, /# AGENTS/);
-  assert.match(updatedAgents, /Keep this file short\. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, or manual escape hatches\./);
+  assert.match(updatedAgents, /Keep this file short\. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, (?:inspection, )?or manual escape hatches\./);
 
   assert.equal(await readFile(issueFile, "utf8"), "# Issue\n");
   assert.equal(await readFile(logFile, "utf8"), "# Log\n");
@@ -924,8 +1033,8 @@ test("runCli upgrade commands use dynamic versioning and respect overrides", asy
     // default target follows package version
     const defaultUpgrade = await runCli(["upgrade", "--dry-run"]);
     assert.equal(defaultUpgrade.exitCode, 0);
-    // targetVersion should match current package version which is "0.2.4"
-    assert.match(defaultUpgrade.output, /Target version: 0\.2\.4/);
+    // targetVersion should match current package version which is "0.2.5"
+    assert.match(defaultUpgrade.output, /Target version: 0\.2\.5/);
 
     // upgrade --to respects explicit target version
     const explicitUpgrade = await runCli(["upgrade", "--dry-run", "--to", "0.2.1"]);

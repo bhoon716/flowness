@@ -1,8 +1,8 @@
 # @flowness-labs/cli
 
-This is the npm README for the Flowness CLI package. The repository overview lives in the root [README](https://github.com/bhoon716/flowness/blob/main/README.md).
+This is the npm README for the Flowness CLI package. The main repository overview lives in the root [README](https://github.com/bhoon716/flowness/blob/main/README.md), and the Chinese guide is in [README.zh-CN.md](https://github.com/bhoon716/flowness/blob/main/README.zh-CN.md).
 
-> Initialize once with `flowness init`, then work through the coding agent in natural language. The command reference below is for setup, debugging, recovery, and other manual escape hatches.
+> In normal use, run `flowness init` once, then work through the coding agent in natural language. Commands stay available mostly as escape hatches for agents, debugging, recovery, CI, or inspection.
 
 ## Package at a Glance
 
@@ -11,50 +11,41 @@ This is the npm README for the Flowness CLI package. The repository overview liv
 | Install | `npm install -g @flowness-labs/cli` |
 | Bootstrap | `npx @flowness-labs/cli init ./my-project` |
 | Best for | Initializing and operating Flowness workspaces |
-| Related docs | Root README, release checklist, release notes |
+| Primary docs | Root README, Chinese README, release checklist, release notes |
 
-Flowness turns requests into tracked issues, runs them through explicit workflows, and keeps evidence in append-only logs. After init, natural-language requests should go through the coding agent first, and you can reach for commands only when you need a compact override.
+Flowness turns requests into tracked issues, routes them through explicit workflows, and keeps evidence in append-only logs. After init, the default path is conversational: talk to the coding agent naturally, then reach for commands only when you need setup, recovery, CI, or inspection.
 
-## Install
+## Start Here
 
-```bash
-npm install -g @flowness-labs/cli
-```
+1. Install the CLI.
+2. Run `flowness init` once for the workspace.
+3. Continue by talking to the coding agent naturally.
 
-Or use `npx`:
+Examples:
 
-```bash
-npx @flowness-labs/cli init ./my-project
-```
+- "Add login validation."
+- "Review the current diff."
+- "Refactor UserService safely."
+- "From now on, require tests for performance improvements."
 
-## Start a Workspace
+## Core Concepts
 
-```bash
-flowness init ./my-project
-cd ./my-project
-flowness run "Add user authentication"
-flowness review:run --issue ISSUE-001-AUTH
-```
+- Issue: the tracked unit of work created from a request.
+- Workflow: the ordered set of steps that shapes the work.
+- Evidence: files, commands, and outputs that support a decision.
+- Review: the multi-perspective check for hard and deferrable blockers.
+- Rules: durable project conventions that stay explicit and reviewable.
 
-After init, use the generated navigation files first, then continue the conversation with the coding agent:
+## Escape Hatches
 
-- `.flowness/navigation.md`
-- `.flowness/context-index.json`
-- `.flowness/commands.json`
+- `flowness locate "<task description>"`
+- `flowness test --summary`
+- `flowness audit --changed`
+- `flowness review:run --issue ISSUE-ID`
+- `flowness upgrade --dry-run`
+- `flowness upgrade --apply`
 
-## Highlights
-
-- `flowness init` is the one-time bootstrap step for a project.
-- Natural-language requests should go through the coding agent first.
-- `flowness locate` finds the smallest relevant file area.
-- `flowness test --summary` returns compact test output.
-- `flowness audit --changed` focuses on the current diff.
-- `flowness upgrade --dry-run` previews workspace changes.
-- `flowness upgrade --apply` applies approved workspace changes.
-- `flowness review:run` routes work through the code-review workflow.
-- `flowness step`, `flowness workflow:step`, and `flowness status` keep issue progress explicit.
-
-## Core Commands
+## Common Commands
 
 - `flowness init`
 - `flowness run`
@@ -78,7 +69,7 @@ The usage lines below mirror `flowness --help` and should stay in lockstep with 
 ```text
 flowness init [path] [--name <project-name>] [--force]
 flowness run <request text> [--type <issue-type>] [--workflow <workflow-id>] [--force]
-flowness issue:create [--title <title>] --type <issue-type> [--workflow <workflow-id>] [--description <text>] [--force]
+flowness issue:create [--title <title>] --type <issue-type> [--workflow <workflow-id>] [--description <text>] [--parent-issue <issue-id>] [--approval-note <text>] [--force]
 flowness request:create <request text> [--type <issue-type>] [--workflow <workflow-id>] [--force]
 flowness skill:run --id <skill-id> [--issue <issue-id>] [--input <text>]
 flowness workflow:create [workflow-id] [--name <display-name>] [--force]
@@ -106,13 +97,16 @@ flowness upgrade [--dry-run|--apply] [--from <version>] [--to <version>]
 
 ## Upgrade Path
 
-> Use `flowness upgrade --dry-run` first, then apply the approved plan with `flowness upgrade --apply`.
-> Do not rerun `flowness init` on an existing project.
+Use `flowness upgrade --dry-run` first, then apply the approved plan with `flowness upgrade --apply`.
+Do not rerun `flowness init` on an existing project.
 
 ## Release Docs
 
 - Changelog: [`CHANGELOG.md`](https://github.com/bhoon716/flowness/blob/main/CHANGELOG.md)
 - Release checklist: [`docs/release-checklist.md`](https://github.com/bhoon716/flowness/blob/main/docs/release-checklist.md)
 - Release notes template: [`docs/templates/release-notes.md`](https://github.com/bhoon716/flowness/blob/main/docs/templates/release-notes.md)
+- Chinese README: [`README.zh-CN.md`](https://github.com/bhoon716/flowness/blob/main/README.zh-CN.md)
+- Performance troubleshooting: [`docs/troubleshooting/performance-improvements.md`](https://github.com/bhoon716/flowness/blob/main/docs/troubleshooting/performance-improvements.md)
+- Evidence summary contract: [`docs/troubleshooting/evidence-summary.md`](https://github.com/bhoon716/flowness/blob/main/docs/troubleshooting/evidence-summary.md)
 - Run `npm run release:check` before shipping a release.
 - Run `npm run release:docs-check` when you only need documentation validation.

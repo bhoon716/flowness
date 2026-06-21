@@ -102,7 +102,9 @@ export type {
   IssueState,
   IssueType,
   LogEntry,
+  ReviewBlockerKind,
   ReviewFinding,
+  ReviewFindingStatus,
   ReviewResult,
   ReviewRole,
   ScaffoldDirectory,
@@ -116,5 +118,7 @@ export {
   evidenceKindValues,
   issueStateValues,
   issueTypeValues,
+  reviewBlockerKindValues,
+  reviewFindingStatusValues,
   reviewRoleValues,
 } from "./types.js";

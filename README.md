@@ -7,95 +7,80 @@
 </div>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ko.md">한국어</a>
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> Initialize once with `flowness init`, then talk to the coding agent naturally. Commands remain available as escape hatches for navigation, testing, audits, upgrades, and recovery.
+> In day-to-day use, you normally run only `flowness init`. After that, work happens through natural conversation with the coding agent; commands stay available as escape hatches for agents, debugging, recovery, CI, and inspection.
 
 ## At a glance
 
 | Surface | Link | Purpose |
 | --- | --- | --- |
-| GitHub README | this file | Repo overview |
-| npm package | [@flowness-labs/core](https://www.npmjs.com/package/@flowness-labs/core) | Package page |
-| CLI docs | [`packages/cli/README.md`](packages/cli/README.md) | npm command reference |
-| Release notes | [`docs/releases/`](docs/releases/) | Version-specific changelogs |
+| GitHub README | this file | Repository overview |
+| npm CLI package | [@flowness-labs/cli](https://www.npmjs.com/package/@flowness-labs/cli) | Install, init, and manual escape hatches |
+| npm core package | [@flowness-labs/core](https://www.npmjs.com/package/@flowness-labs/core) | Harness primitives and workspace scaffolding |
+| Chinese README | [README.zh-CN.md](README.zh-CN.md) | Simplified Chinese guide |
 
-## What is Flowness?
+## What Flowness Is
 
-Flowness is a development operating system that routes requests to issues, executes them via explicit workflows, and preserves evidence and logs in an append-only format. The normal flow is: initialize once, then work through the coding agent in natural language. Use commands when you need a compact escape hatch for navigation, verification, or recovery.
+Flowness is a conversational agent harness for software work. It turns requests into issues, routes them through explicit workflows, preserves evidence and logs in an append-only format, and keeps review and rule changes traceable.
 
-## Install the CLI
+## The Normal Flow
+
+1. Install the CLI.
+2. Run `flowness init` once for the workspace.
+3. Continue by talking to the coding agent naturally.
+
+Examples:
+
+- "Add login validation."
+- "Review the current diff."
+- "Refactor UserService safely."
+- "From now on, require tests for performance improvements."
+
+## Concepts
+
+- Issue: the tracked unit of work that Flowness creates from a request.
+- Workflow: the ordered set of steps that shapes the work.
+- Evidence: concrete files, commands, and outputs that support a decision.
+- Review: the multi-perspective check that looks for hard and deferrable blockers.
+- Rules: durable project conventions that should be explicit and reviewable.
+
+## Install
 
 ```bash
 npm install -g @flowness-labs/cli
 ```
 
-Or start a new workspace with `npx`:
-
-```bash
-npx @flowness-labs/cli init ./my-project
-```
-
-## Start a Workspace
+## Initialize Once
 
 ```bash
 flowness init ./my-project
 cd ./my-project
-flowness run "Add user authentication"
-flowness status --issue ISSUE-001-AUTH
 ```
 
-After initialization, read these files first and then continue the conversation with the coding agent:
+After init, talk to the coding agent naturally. Keep the agent on task with ordinary conversation, then reach for commands only when you need setup, recovery, CI, or inspection.
 
-- `.flowness/navigation.md`
-- `.flowness/context-index.json`
-- `.flowness/commands.json`
+## Escape Hatches
 
-## What It Does
-
-- Routes requests to issues with explicit workflows after a single `flowness init`.
-- Lets you keep working in natural language with the coding agent instead of command-first rituals.
-- Limits scanning scope using `flowness locate` when you need a compact file map.
-- Provides `flowness test --summary`, `flowness audit --changed`, `flowness upgrade --dry-run`, and `flowness upgrade --apply` as escape hatches.
-- Separates code review flows with `flowness review:run`.
-- Explicitly manages progress with `flowness step`, `flowness workflow:step`, and `flowness status`.
-- Preserves evidence, logs, and review outputs in an append-only format.
-
-## Core Commands
-
-- `flowness init`
-- `flowness run`
-- `flowness request:create`
-- `flowness issue:create`
-- `flowness step`
-- `flowness workflow:step`
-- `flowness status`
-- `flowness review:run`
-- `flowness locate`
+- `flowness locate "<task description>"`
 - `flowness test --summary`
 - `flowness audit --changed`
+- `flowness review:run --issue ISSUE-ID`
 - `flowness upgrade --dry-run`
 - `flowness upgrade --apply`
-- `flowness validate`
 
-## Lightweight Navigation
+## Docs
 
-- Read `.flowness/navigation.md` before scanning the workspace.
-- Use `.flowness/context-index.json` to find the smallest useful file set.
-- Use `.flowness/commands.json` for exact command strings when you need a manual escape hatch.
-- Prefer `flowness locate "<task description>"` over broad repo scans.
-
-## Upgrade Existing Projects
-
-> Use `flowness upgrade --dry-run` first, then apply the approved plan with `flowness upgrade --apply`.
-> Do not rerun `flowness init` on an existing project.
-
-## Release Documentation
-
+- CLI package README: [`packages/cli/README.md`](packages/cli/README.md)
+- Core package README: [`packages/core/README.md`](packages/core/README.md)
+- Chinese README: [`README.zh-CN.md`](README.zh-CN.md)
+- Performance troubleshooting: [`docs/troubleshooting/performance-improvements.md`](docs/troubleshooting/performance-improvements.md)
+- Evidence summary contract: [`docs/troubleshooting/evidence-summary.md`](docs/troubleshooting/evidence-summary.md)
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md)
 - Release checklist: [`docs/release-checklist.md`](docs/release-checklist.md)
 - Release notes template: [`docs/templates/release-notes.md`](docs/templates/release-notes.md)
 - Release notes: [`docs/releases/`](docs/releases/)
-- Run `npm run release:check` before cutting a release.
-- Run `npm run release:docs-check` when you only need documentation validation.
+
+Run `npm run release:check` before cutting a release.
+Run `npm run release:docs-check` when you only need documentation validation.

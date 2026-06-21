@@ -94,7 +94,7 @@ function getPackageVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     return pkg.version;
   } catch {
-    return "0.2.4";
+    return "0.2.5";
   }
 }
 
@@ -116,6 +116,8 @@ export interface ParsedIssueCreateCommand {
   readonly type: (typeof issueTypeValues)[number];
   readonly description?: string;
   readonly workflowId?: string;
+  readonly parentIssueId?: string;
+  readonly approvalNote?: string;
   readonly force: boolean;
 }
 
@@ -428,6 +430,8 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
   let type: (typeof issueTypeValues)[number] | undefined;
   let description: string | undefined;
   let workflowId: string | undefined;
+  let parentIssueId: string | undefined;
+  let approvalNote: string | undefined;
   let force = false;
   const positional: string[] = [];
 
@@ -502,6 +506,46 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
       continue;
     }
 
+    if (token === "--parent-issue" || token === "--parent") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error(`Missing value for ${token}.`);
+      }
+      parentIssueId = normalizeIssueId(next);
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--parent-issue=")) {
+      parentIssueId = normalizeIssueId(token.slice("--parent-issue=".length));
+      continue;
+    }
+
+    if (token.startsWith("--parent=")) {
+      parentIssueId = normalizeIssueId(token.slice("--parent=".length));
+      continue;
+    }
+
+    if (token === "--approval-note" || token === "--approval-text") {
+      const next = rest[index + 1];
+      if (next === undefined || isOptionToken(next)) {
+        throw new Error(`Missing value for ${token}.`);
+      }
+      approvalNote = next;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--approval-note=")) {
+      approvalNote = token.slice("--approval-note=".length);
+      continue;
+    }
+
+    if (token.startsWith("--approval-text=")) {
+      approvalNote = token.slice("--approval-text=".length);
+      continue;
+    }
+
     positional.push(token);
   }
 
@@ -532,6 +576,8 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
     force,
     ...(description === undefined ? {} : { description }),
     ...(workflowId === undefined ? {} : { workflowId }),
+    ...(parentIssueId === undefined ? {} : { parentIssueId }),
+    ...(approvalNote === undefined ? {} : { approvalNote }),
   };
 }
 
@@ -2334,10 +2380,12 @@ function formatRequestCreateSummary(input: {
 function formatRuleApprovalSummary(analysis: RequestAnalysis): string {
   const lines = [
     "Rule change candidate detected.",
+    `현재 rule은 "${analysis.existingRule ?? "none"}"입니다. 앞으로는 "${analysis.proposedRule ?? "none"}"로 바꿀까요?`,
     `Request: ${analysis.request}`,
     `Rule id: ${analysis.ruleChangeRuleId ?? "unknown"}`,
     `Existing rule: ${analysis.existingRule ?? "none"}`,
     `Proposed rule: ${analysis.proposedRule ?? "none"}`,
+    `Reason: ${analysis.reason}`,
     `Approval required: ${analysis.requiresUserApproval ? "yes" : "no"}`,
     `Next action: ${analysis.requiresUserApproval ? "Review the existing rule and approve or revise the proposed change." : analysis.nextAction}`,
     `Use: ${analysis.ruleChangeRuleId === undefined ? "flowness rule:update --id RULE-ID --input \"...\"" : `flowness rule:update --id ${analysis.ruleChangeRuleId} --input \"...\"`}`,
@@ -2451,7 +2499,9 @@ function formatRuleUpdateSummary(input: {
     input.requestedRuleId !== undefined && input.requestedRuleId !== input.ruleId
       ? `Requested rule: ${input.requestedRuleId}`
       : null,
-    input.resolvedRuleId !== undefined && input.resolvedRuleId !== input.ruleId
+    input.requestedRuleId !== undefined
+      && input.resolvedRuleId !== undefined
+      && input.requestedRuleId !== input.resolvedRuleId
       ? `Resolved rule: ${input.resolvedRuleId}`
       : null,
     `Path: ${input.filePath}`,
@@ -3542,7 +3592,79 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
       "Implementation or review evidence",
       "Verification output",
     ],
+    ...(command.parentIssueId === undefined ? {} : { parentIssueId: command.parentIssueId }),
   });
+
+  let parentIssueLinked = false;
+  if (command.parentIssueId !== undefined) {
+    const parentWorkspace = await readIssueWorkspace(rootDir, command.parentIssueId);
+    if (parentWorkspace === null) {
+      throw new Error(`Parent issue not found: ${command.parentIssueId}`);
+    }
+
+    const childIssueIds = new Set(parentWorkspace.issue.childIssueIds ?? []);
+    childIssueIds.add(result.issue.id);
+    const parentUpdatedAt = result.issue.createdAt;
+    const updatedParentIssue = {
+      ...parentWorkspace.issue,
+      childIssueIds: [...childIssueIds],
+    };
+    const updatedParentWorkspace = await writeIssueWorkspaceState(
+      rootDir,
+      updatedParentIssue,
+      {
+        ...parentWorkspace.workflowState,
+        updatedAt: parentUpdatedAt,
+      },
+      parentWorkspace.description,
+    );
+
+    const approvalActions = [
+      `Linked follow-up issue ${result.issue.id} to parent ${command.parentIssueId}.`,
+    ];
+    if (command.approvalNote !== undefined && command.approvalNote.trim().length > 0) {
+      approvalActions.push(`Approval note: ${command.approvalNote}`);
+    }
+
+    await appendLogEntryToIssue(rootDir, command.parentIssueId, updatedParentWorkspace.issue.title, createLogEntry({
+      timestamp: result.issue.createdAt,
+      step: "Follow-up Issue Linked",
+      actions: approvalActions,
+      evidence: [
+        createEvidenceRecord({
+          kind: "file",
+          title: `issues/${result.issue.id}/issue.md`,
+          location: result.issuePaths.issueFile,
+          detail: result.issue.title,
+        }),
+      ],
+      summary: `Follow-up issue ${result.issue.id} was linked to ${command.parentIssueId}.`,
+      nextStep: updatedParentWorkspace.workflowState.currentStep || null,
+    }));
+
+    if (command.approvalNote !== undefined && command.approvalNote.trim().length > 0) {
+      const childLogEntry = createLogEntry({
+        timestamp: result.issue.createdAt,
+        step: "Approval Note Recorded",
+        actions: [
+          `Parent issue: ${command.parentIssueId}`,
+          `Approval note: ${command.approvalNote}`,
+        ],
+        evidence: [
+          createEvidenceRecord({
+            kind: "command_output",
+            title: "Approval note",
+            detail: command.approvalNote,
+          }),
+        ],
+        summary: "Approval text was recorded for the follow-up issue.",
+        nextStep: result.workflowState.currentStep || null,
+      });
+      await appendLogEntryToIssue(rootDir, result.issue.id, result.issue.title, childLogEntry);
+    }
+
+    parentIssueLinked = true;
+  }
 
   const planningDocs = await ensurePlanningDocs(rootDir, analysis);
   if (planningDocs.createdFiles.length > 0) {
@@ -3573,7 +3695,12 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
 
   return {
     exitCode: 0,
-    output: formatIssueSummary(result),
+    output: [
+      formatIssueSummary(result),
+      ...(parentIssueLinked && command.approvalNote !== undefined && command.approvalNote.trim().length > 0
+        ? ["", `Approval note: ${command.approvalNote}`]
+        : []),
+    ].join("\n"),
   };
 }
 
@@ -4074,6 +4201,7 @@ async function runRuleCreateCommand(command: ParsedRuleCreateCommand): Promise<C
       exitCode: 1,
       output: [
         "Multiple matching rules were found. Specify the rule you want to update:",
+        `Reason: ${resolution.reason}`,
         ...resolution.ambiguousMatches.map((candidate) => `- ${candidate.ruleId}: ${candidate.title} (${candidate.path})`),
       ].join("\n"),
     };
@@ -4573,6 +4701,7 @@ async function runRuleUpdateCommand(command: ParsedRuleUpdateCommand): Promise<C
       exitCode: 1,
       output: [
         "Multiple matching rules were found. Specify the rule you want to update:",
+        `Reason: ${resolution.reason}`,
         ...resolution.ambiguousMatches.map((candidate) => `- ${candidate.ruleId}: ${candidate.title} (${candidate.path})`),
       ].join("\n"),
     };
@@ -5267,7 +5396,7 @@ function usage(): string {
     "Usage:",
     "  flowness init [path] [--name <project-name>] [--force]",
     "  flowness run <request text> [--type <issue-type>] [--workflow <workflow-id>] [--force]",
-    "  flowness issue:create [--title <title>] --type <issue-type> [--workflow <workflow-id>] [--description <text>] [--force]",
+    "  flowness issue:create [--title <title>] --type <issue-type> [--workflow <workflow-id>] [--description <text>] [--parent-issue <issue-id>] [--approval-note <text>] [--force]",
     "  flowness request:create <request text> [--type <issue-type>] [--workflow <workflow-id>] [--force]",
     "  flowness skill:run --id <skill-id> [--issue <issue-id>] [--input <text>]",
     "  flowness workflow:create [workflow-id] [--name <display-name>] [--force]",

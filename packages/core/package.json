@@ -1,6 +1,6 @@
 {
   "name": "@flowness-labs/core",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,10 +21,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/flowness-labs/flowness.git"
+    "url": "git+https://github.com/bhoon716/flowness.git"
   },
   "bugs": {
-    "url": "https://github.com/flowness-labs/flowness/issues"
+    "url": "https://github.com/bhoon716/flowness/issues"
   },
-  "homepage": "https://github.com/flowness-labs/flowness#readme"
+  "homepage": "https://github.com/bhoon716/flowness#readme"
 }

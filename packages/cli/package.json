@@ -1,6 +1,6 @@
 {
   "name": "@flowness-labs/cli",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,14 +18,14 @@
     "bin.js"
   ],
   "dependencies": {
-    "@flowness-labs/config-system": "^0.2.4",
-    "@flowness-labs/core": "^0.2.4",
-    "@flowness-labs/decision-system": "^0.2.4",
-    "@flowness-labs/evidence-system": "^0.2.4",
-    "@flowness-labs/issue-system": "^0.2.4",
-    "@flowness-labs/log-system": "^0.2.4",
-    "@flowness-labs/review-system": "^0.2.4",
-    "@flowness-labs/workflow-engine": "^0.2.4"
+    "@flowness-labs/config-system": "^0.2.5",
+    "@flowness-labs/core": "^0.2.5",
+    "@flowness-labs/decision-system": "^0.2.5",
+    "@flowness-labs/evidence-system": "^0.2.5",
+    "@flowness-labs/issue-system": "^0.2.5",
+    "@flowness-labs/log-system": "^0.2.5",
+    "@flowness-labs/review-system": "^0.2.5",
+    "@flowness-labs/workflow-engine": "^0.2.5"
   },
   "scripts": {
     "build": "tsc -b",

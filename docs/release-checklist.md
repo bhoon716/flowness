@@ -6,6 +6,8 @@ Use this checklist for every Flowness version bump. Keep it compact, human-reada
 
 - GitHub README: `README.md`
 - npm README for the CLI package / command reference: `packages/cli/README.md`
+- Chinese README: `README.zh-CN.md`
+- Core package README: `packages/core/README.md`
 - Changelog: `CHANGELOG.md`
 - Release notes template: `docs/templates/release-notes.md`
 - Versioned release notes: `docs/releases/<version>.md`
@@ -23,6 +25,8 @@ If the GitHub README and npm README ever become the same file, record that here 
 - [ ] Removed or deprecated commands
 - [ ] GitHub README updated
 - [ ] npm README / package docs updated
+- [ ] Chinese README updated and linked
+- [ ] Package metadata links verified
 - [ ] CHANGELOG updated
 - [ ] package.json metadata updated
 - [ ] Tests, build, and audit passed
@@ -35,7 +39,10 @@ If the GitHub README and npm README ever become the same file, record that here 
 - If CLI commands change, update both README files and the release notes.
 - Keep the post-init workflow description aligned with the "initialize once, then talk to the coding agent" flow.
 - Keep `flowness locate`, `flowness test --summary`, `flowness audit --changed`, and `flowness upgrade` documented.
-- Keep `rule-update-log.md` and `docs/troubleshooting/performance-improvements.md` in the release notes if they are user-visible changes.
+- Keep the conversational usage examples in the README files above the command reference sections.
+- Keep the Chinese README linked from both the GitHub README and the npm README.
+- Keep `rule-update-log.md`, `docs/troubleshooting/performance-improvements.md`, and `docs/troubleshooting/evidence-summary.md` in the release notes if they are user-visible changes.
+- Keep the review finding lifecycle, hard/deferrable blocker split, and performance evidence summary contract documented when those rules change.
 - Keep the generated command reference in `packages/cli/README.md` in sync with the command surface that ships in the package.
 
 ## Notes

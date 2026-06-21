@@ -4,6 +4,10 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type {
+  ReviewBlockerKind,
+  ReviewFindingStatus,
+} from "@flowness-labs/core";
 import {
   createInitialWorkflowState,
   createWorkflowStepContext,
@@ -126,6 +130,7 @@ async function writeCommitIssueArtifacts(input: {
   readonly currentStep: string;
   readonly changedFiles: readonly string[];
   readonly commandEvidence: readonly string[];
+  readonly childIssueIds?: readonly string[];
 }): Promise<void> {
   const issueDir = join(input.rootDir, ".flowness", "issues", input.issueId);
   const reviewsDir = join(issueDir, "reviews");
@@ -145,6 +150,7 @@ async function writeCommitIssueArtifacts(input: {
       updatedAt: timestamp,
       logPath: `.flowness/logs/${input.issueId}.md`,
       goal: input.goal,
+      childIssueIds: input.childIssueIds,
     },
     description: input.goal,
   }, null, 2)}\n`, "utf8");
@@ -199,6 +205,113 @@ async function writeCommitIssueArtifacts(input: {
     "- None",
     "",
   ].join("\n"), "utf8");
+}
+
+interface CustomReviewFinding {
+  readonly id: string;
+  readonly perspective: string;
+  readonly severity: "critical" | "high" | "medium" | "low";
+  readonly status: ReviewFindingStatus;
+  readonly blockerKind: ReviewBlockerKind;
+  readonly filePath?: string | null;
+  readonly problem: string;
+  readonly recommendation: string;
+  readonly requiresFollowUpIssue: boolean;
+  readonly rationale: string;
+}
+
+async function writeCustomReviewReport(input: {
+  readonly rootDir: string;
+  readonly issueId: string;
+  readonly issueTitle: string;
+  readonly workflowId: string;
+  readonly changedFiles: readonly string[];
+  readonly commandEvidence: readonly string[];
+  readonly passed: boolean;
+  readonly blockingRoles: readonly string[];
+  readonly deferrableRoles: readonly string[];
+  readonly summary: string;
+  readonly findings: readonly CustomReviewFinding[];
+}): Promise<string> {
+  const reviewPath = join(input.rootDir, ".flowness", "issues", input.issueId, "reviews", `REVIEW-001-${input.issueId}.md`);
+  const changedFiles = input.changedFiles.length === 0
+    ? ["- None"]
+    : input.changedFiles.map((file) => `- ${file}`);
+  const commandEvidence = input.commandEvidence.length === 0
+    ? ["- None"]
+    : input.commandEvidence.map((command) => `- ${command}`);
+  const blockingRoles = input.blockingRoles.length === 0 ? "none" : input.blockingRoles.join(", ");
+  const deferrableRoles = input.deferrableRoles.length === 0 ? "none" : input.deferrableRoles.join(", ");
+  const findings = input.findings.length === 0
+    ? ["- None"]
+    : input.findings.flatMap((finding) => [
+      `#### ${finding.id}`,
+      `- Perspective: ${finding.perspective}`,
+      `- Severity: ${finding.severity.toUpperCase()}`,
+      `- Status: ${finding.status}`,
+      `- Blocker kind: ${finding.blockerKind}`,
+      `- File/path: ${finding.filePath ?? "none"}`,
+      "- Evidence:",
+      "  - None",
+      `- Problem: ${finding.problem}`,
+      `- Recommendation: ${finding.recommendation}`,
+      `- Requires follow-up issue: ${finding.requiresFollowUpIssue ? "yes" : "no"}`,
+      `- Rationale: ${finding.rationale}`,
+      "",
+    ]);
+
+  await writeFile(reviewPath, [
+    `# REVIEW-001-${input.issueId}.md`,
+    "",
+    `- Issue: ${input.issueId}`,
+    `- Issue Title: ${input.issueTitle}`,
+    "- Issue Type: feature",
+    `- Workflow: ${input.workflowId}`,
+    "- Reviewed At: 2026-06-21T00:00:00.000Z",
+    `- Passed: ${input.passed ? "yes" : "no"}`,
+    `- Hard Blocking Roles: ${blockingRoles}`,
+    `- Deferrable Roles: ${deferrableRoles}`,
+    "",
+    "## Target",
+    input.issueTitle,
+    "",
+    "## Diff Summary",
+    ...changedFiles,
+    "",
+    "## Changed Files",
+    ...changedFiles,
+    "",
+    "## Commands / Tests",
+    ...commandEvidence,
+    "",
+    "## Summary",
+    input.summary,
+    "",
+    "## Perspective Results",
+    "### Performance Reviewer",
+    "",
+    `- Status: ${input.passed ? "pass" : "fail"}`,
+    `- Summary: ${input.summary}`,
+    `- Hard blockers: ${input.blockingRoles.length}`,
+    `- Deferrable blockers: ${input.deferrableRoles.length}`,
+    "- Findings:",
+    ...findings.map((line) => `  ${line}`),
+    "",
+    "## Findings",
+    ...findings,
+    "",
+    "## Recommended Next Actions",
+    "- None",
+    "",
+    "## Follow-up Issue Suggestions",
+    "- None",
+    "",
+    "## Limitations",
+    "- None",
+    "",
+  ].join("\n"), "utf8");
+
+  return reviewPath;
 }
 
 function createCommitWorkflow() {
@@ -497,6 +610,186 @@ test("prepareCommitWorkflowStep blocks code changes when checks are not recorded
   const assessment = await prepareCommitWorkflowStep(context, workflow.id);
   assert.equal(assessment.blockingReason, "Required checks were not recorded in the Evidence Review report.");
   assert.deepEqual(assessment.stagedFiles, ["src/index.ts"]);
+});
+
+test("prepareCommitWorkflowStep blocks hard blockers from the Evidence Review report", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-commit-hard-blocker-"));
+  await writeGitRules(rootDir, "disallow");
+  await initGitRepo(rootDir, [{ path: "src/index.ts", content: "export const value = 1;\n" }], "feat: base");
+  await writeFile(join(rootDir, "src", "index.ts"), "export const value = 2;\n", "utf8");
+
+  const issueId = "ISSUE-001-HARD-BLOCKER";
+  await writeCommitIssueArtifacts({
+    rootDir,
+    issueId,
+    workflowId: "commit-workflow",
+    issueTitle: "Improve commit workflow",
+    goal: "Improve commit workflow",
+    completedSteps: ["Evidence Review"],
+    currentStep: "Commit",
+    changedFiles: ["src/index.ts"],
+    commandEvidence: ["npm test"],
+  });
+
+  await writeCustomReviewReport({
+    rootDir,
+    issueId,
+    issueTitle: "Improve commit workflow",
+    workflowId: "commit-workflow",
+    changedFiles: ["src/index.ts"],
+    commandEvidence: ["npm test"],
+    passed: false,
+    blockingRoles: ["Correctness Reviewer"],
+    deferrableRoles: [],
+    summary: "Blocking review agents: Correctness Reviewer",
+    findings: [
+      {
+        id: "CORR-001",
+        perspective: "Correctness Reviewer",
+        severity: "critical",
+        status: "open",
+        blockerKind: "hard",
+        filePath: "src/index.ts",
+        problem: "Correctness failure blocks the commit.",
+        recommendation: "Fix the failing behavior before committing.",
+        requiresFollowUpIssue: false,
+        rationale: "A correctness failure must not be deferred.",
+      },
+    ],
+  });
+
+  const workflow = createCommitWorkflow();
+  const state = {
+    ...createInitialWorkflowState(workflow, "2026-06-21T00:00:00.000Z"),
+    currentStep: "Commit",
+    completedSteps: ["Evidence Review"],
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  } satisfies ReturnType<typeof createInitialWorkflowState>;
+  const context = createWorkflowStepContext({
+    issueId,
+    issueType: "feature",
+    workflowId: workflow.id,
+    stepName: "Commit",
+    rootDir,
+    state,
+  });
+
+  const assessment = await prepareCommitWorkflowStep(context, workflow.id);
+  assert.match(assessment.blockingReason ?? "", /Evidence Review is blocked by: Correctness Reviewer|Evidence Review did not pass\./);
+  assert.equal(assessment.reviewReportPassed, false);
+  assert.deepEqual(assessment.stagedFiles, []);
+});
+
+test("prepareCommitWorkflowStep allows deferrable blockers when a follow-up issue is recorded", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-commit-deferrable-"));
+  await writeGitRules(rootDir, "disallow");
+  await initGitRepo(rootDir, [{ path: "src/index.ts", content: "export const value = 1;\n" }], "feat: base");
+  await writeFile(join(rootDir, "src", "index.ts"), "export const value = 2;\n", "utf8");
+
+  const issueId = "ISSUE-001-DEFERRABLE";
+  await writeCommitIssueArtifacts({
+    rootDir,
+    issueId,
+    workflowId: "commit-workflow",
+    issueTitle: "Improve commit workflow",
+    goal: "Improve commit workflow",
+    completedSteps: ["Evidence Review"],
+    currentStep: "Commit",
+    changedFiles: ["src/index.ts"],
+    commandEvidence: ["npm test"],
+    childIssueIds: ["ISSUE-002-PERF-FOLLOWUP"],
+  });
+
+  await writeFile(join(rootDir, ".flowness", "issues", issueId, "issue.json"), `${JSON.stringify({
+    issue: {
+      id: issueId,
+      type: "feature",
+      title: "Improve commit workflow",
+      state: "in_progress",
+      workflowId: "commit-workflow",
+      directory: issueId,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z",
+      logPath: `.flowness/logs/${issueId}.md`,
+      goal: "Improve commit workflow",
+      childIssueIds: ["ISSUE-002-PERF-FOLLOWUP"],
+    },
+    description: "Improve commit workflow",
+  }, null, 2)}\n`, "utf8");
+
+  await writeCustomReviewReport({
+    rootDir,
+    issueId,
+    issueTitle: "Improve commit workflow",
+    workflowId: "commit-workflow",
+    changedFiles: ["src/index.ts"],
+    commandEvidence: ["npm test"],
+    passed: true,
+    blockingRoles: [],
+    deferrableRoles: ["Performance Reviewer"],
+    summary: "No hard blocking findings, but deferrable concern roles were recorded: Performance Reviewer",
+    findings: [
+      {
+        id: "PERF-001",
+        perspective: "Performance Reviewer",
+        severity: "high",
+        status: "deferred",
+        blockerKind: "deferrable",
+        filePath: "src/index.ts",
+        problem: "The benchmark should be narrowed before merge.",
+        recommendation: "Create the follow-up performance issue and track it separately.",
+        requiresFollowUpIssue: true,
+        rationale: "Deferring to a follow-up issue is acceptable here.",
+      },
+    ],
+  });
+
+  const workflow = createCommitWorkflow();
+  const state = {
+    ...createInitialWorkflowState(workflow, "2026-06-21T00:00:00.000Z"),
+    currentStep: "Commit",
+    completedSteps: ["Evidence Review"],
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  } satisfies ReturnType<typeof createInitialWorkflowState>;
+  const context = createWorkflowStepContext({
+    issueId,
+    issueType: "feature",
+    workflowId: workflow.id,
+    stepName: "Commit",
+    rootDir,
+    state,
+  });
+
+  const assessment = await prepareCommitWorkflowStep(context, workflow.id);
+  assert.equal(assessment.blockingReason, null);
+  assert.equal(assessment.approvalRequired, true);
+  assert.equal(assessment.reviewReportPassed, true);
+  assert.deepEqual(assessment.stagedFiles, ["src/index.ts"]);
+
+  await withGitWrapper(async ({ logFile }) => {
+    const waiting = await runWorkflowStep({
+      workflow,
+      state,
+      context,
+      timestamp: "2026-06-21T00:01:00.000Z",
+      approved: false,
+    });
+    assert.equal(waiting.status, "waiting_approval");
+    assert.match(waiting.logEntry.summary, /Awaiting human approval/);
+
+    const completed = await runCommitWorkflowStep(context, workflow.id, true, assessment);
+    const commitHash = runGit(rootDir, ["rev-parse", "HEAD"]);
+    assert.match(completed.summary, new RegExp(commitHash));
+    assert.match(completed.summary, /feat: improve commit workflow/);
+    assert.equal(completed.evidence.some((item) => item.title === "git commit"), true);
+
+    const logLines = (await readFile(logFile, "utf8"))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    assert.equal(logLines.some((line) => line === "git add -- src/index.ts"), true);
+    assert.equal(logLines.some((line) => line.startsWith("git commit -m feat: improve commit workflow")), true);
+  });
 });
 
 test("runWorkflowStep resolves the repo from changed files and commits only approved files", async () => {

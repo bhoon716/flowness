@@ -5,6 +5,8 @@ import type {
   EvidenceRecord,
   IssueRecord,
   IssueType,
+  ReviewBlockerKind,
+  ReviewFindingStatus,
   WorkflowState,
   WorkflowStepContext,
   WorkflowStepResult,
@@ -68,9 +70,19 @@ interface ParsedReviewReport {
   readonly filePath: string;
   readonly passed: boolean;
   readonly blockingRoles: readonly string[];
+  readonly deferrableRoles: readonly string[];
+  readonly concernRoles: readonly string[];
   readonly changedFiles: readonly string[];
   readonly commandEvidence: readonly string[];
   readonly summary: string;
+  readonly findings: readonly ParsedReviewFinding[];
+}
+
+interface ParsedReviewFinding {
+  readonly id: string;
+  readonly status: ReviewFindingStatus;
+  readonly blockerKind: ReviewBlockerKind;
+  readonly requiresFollowUpIssue: boolean;
 }
 
 export interface CommitAssessment {
@@ -390,16 +402,76 @@ function parseReviewReportMarkdown(filePath: string, source: string): ParsedRevi
   let currentSection = "";
   let passed: boolean | null = null;
   let blockingRoles: string[] = [];
+  let deferrableRoles: string[] = [];
   let summary = "";
   const changedFiles: string[] = [];
   const commandEvidence: string[] = [];
+  const findings: ParsedReviewFinding[] = [];
+  let currentFinding: ParsedReviewFinding | null = null;
+
+  const flushCurrentFinding = (): void => {
+    if (currentFinding === null) {
+      return;
+    }
+
+    findings.push(currentFinding);
+    currentFinding = null;
+  };
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
     const sectionMatch = line.match(/^##\s+(.+?)\s*$/);
     if (sectionMatch !== null) {
       currentSection = sectionMatch[1]?.trim().toLowerCase() ?? "";
+      flushCurrentFinding();
       continue;
+    }
+
+    if (currentSection === "findings") {
+      const findingHeading = line.match(/^####\s+(.+?)\s*$/);
+      if (findingHeading?.[1] !== undefined) {
+        flushCurrentFinding();
+        currentFinding = {
+          id: findingHeading[1].trim(),
+          status: "open",
+          blockerKind: "none",
+          requiresFollowUpIssue: false,
+        };
+        continue;
+      }
+
+      if (currentFinding !== null) {
+        if (line.startsWith("- Status: ")) {
+          const value = line.slice("- Status: ".length).trim().toLowerCase();
+          if (value === "open" || value === "addressed" || value === "closed" || value === "deferred" || value === "accepted-risk") {
+            currentFinding = {
+              ...currentFinding,
+              status: value,
+            };
+          }
+          continue;
+        }
+
+        if (line.startsWith("- Blocker kind: ")) {
+          const value = line.slice("- Blocker kind: ".length).trim().toLowerCase();
+          if (value === "hard" || value === "deferrable" || value === "none") {
+            currentFinding = {
+              ...currentFinding,
+              blockerKind: value,
+            };
+          }
+          continue;
+        }
+
+        if (line.startsWith("- Requires follow-up issue: ")) {
+          const value = line.slice("- Requires follow-up issue: ".length).trim().toLowerCase();
+          currentFinding = {
+            ...currentFinding,
+            requiresFollowUpIssue: value === "yes" || value === "true",
+          };
+          continue;
+        }
+      }
     }
 
     if (line.startsWith("- Passed: ")) {
@@ -412,9 +484,21 @@ function parseReviewReportMarkdown(filePath: string, source: string): ParsedRevi
       continue;
     }
 
-    if (line.startsWith("- Blocking Roles: ")) {
-      const value = line.slice("- Blocking Roles: ".length).trim();
+    if (line.startsWith("- Hard Blocking Roles: ") || line.startsWith("- Blocking Roles: ")) {
+      const value = line.includes("- Hard Blocking Roles: ")
+        ? line.slice("- Hard Blocking Roles: ".length).trim()
+        : line.slice("- Blocking Roles: ".length).trim();
       blockingRoles = value.length === 0 || value.toLowerCase() === "none"
+        ? []
+        : value.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+      continue;
+    }
+
+    if (line.startsWith("- Deferrable Roles: ") || line.startsWith("- Concern Roles: ")) {
+      const value = line.includes("- Deferrable Roles: ")
+        ? line.slice("- Deferrable Roles: ".length).trim()
+        : line.slice("- Concern Roles: ".length).trim();
+      deferrableRoles = value.length === 0 || value.toLowerCase() === "none"
         ? []
         : value.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
       continue;
@@ -447,6 +531,8 @@ function parseReviewReportMarkdown(filePath: string, source: string): ParsedRevi
     }
   }
 
+  flushCurrentFinding();
+
   if (passed === null) {
     throw new Error(`Review report is missing the Passed flag: ${filePath}`);
   }
@@ -455,9 +541,12 @@ function parseReviewReportMarkdown(filePath: string, source: string): ParsedRevi
     filePath,
     passed,
     blockingRoles,
+    deferrableRoles,
+    concernRoles: deferrableRoles,
     changedFiles,
     commandEvidence,
     summary: summary.trim(),
+    findings,
   };
 }
 
@@ -516,6 +605,27 @@ function sanitizePreview(value: string): string {
 
 function formatPathList(paths: readonly string[]): string {
   return paths.length === 0 ? "none" : paths.join(", ");
+}
+
+const resolvedReviewFindingStatuses: readonly ReviewFindingStatus[] = [
+  "addressed",
+  "closed",
+];
+
+function isResolvedReviewFindingStatus(status: ReviewFindingStatus): boolean {
+  return resolvedReviewFindingStatuses.includes(status);
+}
+
+function isDeferrableReviewFinding(finding: ParsedReviewFinding): boolean {
+  return finding.blockerKind === "deferrable" && !isResolvedReviewFindingStatus(finding.status);
+}
+
+function hasOpenDeferrableReviewFinding(report: ParsedReviewReport): boolean {
+  return report.findings.some((finding) => finding.blockerKind === "deferrable" && finding.status === "open");
+}
+
+function hasDeferredOrAcceptedRiskFinding(report: ParsedReviewReport): boolean {
+  return report.findings.some((finding) => finding.blockerKind === "deferrable" && (finding.status === "deferred" || finding.status === "accepted-risk"));
 }
 
 function extractMeaningfulText(value: string | undefined | null): string | null {
@@ -891,6 +1001,7 @@ async function buildCommitAssessment(
   }
 
   const rules = parseGitRuleConfig(await readTextFile(rulesPath));
+  const baseApprovalRequired = !rules.autoCommitAllowed && rules.humanApprovalRequired;
   const reviewReport = await readLatestReviewReport(workspaceRoot, snapshot);
   const evidenceReviewLogged = snapshot.workflowState.completedSteps.includes("Evidence Review");
 
@@ -1675,6 +1786,142 @@ async function buildCommitAssessment(
     };
   }
 
+  const legacyDeferrableConcernPresent = reviewReport.findings.length === 0 && reviewReport.concernRoles.length > 0;
+  const openDeferrableFindingsPresent = hasOpenDeferrableReviewFinding(reviewReport) || legacyDeferrableConcernPresent;
+  const deferredOrAcceptedRiskFindingsPresent = hasDeferredOrAcceptedRiskFinding(reviewReport);
+  if (openDeferrableFindingsPresent || deferredOrAcceptedRiskFindingsPresent) {
+    const followUpIssuePresent = (snapshot.issue.childIssueIds ?? []).length > 0;
+    if (openDeferrableFindingsPresent) {
+      const blockingReason = "Deferrable review findings are still open. Mark them deferred or accepted-risk before committing.";
+      return {
+        issueId: context.issueId,
+        workflowName,
+        issueTitle: snapshot.issue.title,
+        repoRoot: repo.root,
+        gitDir: repo.gitDir,
+        repoRelationship,
+        approvalRequired: true,
+        autoCommitAllowed: rules.autoCommitAllowed,
+        conventionalCommitsRequired: rules.conventionalCommitsRequired,
+        commitMessageStyle: rules.commitMessageStyle,
+        proposedCommitMessage,
+        changedFiles: reviewReport.changedFiles,
+        excludedFiles: filtered.excludedFiles,
+        stagedFiles: filtered.safeFiles,
+        statusPreview: statusPreviewResult.stdout,
+        diffPreview: diffPreviewResult.stdout,
+        reviewReportPath: reviewReport.filePath,
+        reviewReportPassed: reviewReport.passed,
+        evidenceReviewLogged,
+        blockingReason,
+        rulesPath,
+        evidence: buildCommitEvidence({
+          issueId: context.issueId,
+          workflowName,
+          issueTitle: snapshot.issue.title,
+          repoRoot: repo.root,
+          gitDir: repo.gitDir,
+          repoRelationship,
+          approvalRequired: true,
+          autoCommitAllowed: rules.autoCommitAllowed,
+          conventionalCommitsRequired: rules.conventionalCommitsRequired,
+          commitMessageStyle: rules.commitMessageStyle,
+          proposedCommitMessage,
+          changedFiles: reviewReport.changedFiles,
+          excludedFiles: filtered.excludedFiles,
+          stagedFiles: filtered.safeFiles,
+          statusPreview: statusPreviewResult.stdout,
+          diffPreview: diffPreviewResult.stdout,
+          reviewReportPath: reviewReport.filePath,
+          reviewReportPassed: reviewReport.passed,
+          evidenceReviewLogged,
+          blockingReason,
+          rulesPath,
+          evidence: [],
+          actions: [],
+        }),
+        actions: [
+          `Git rules: ${rulesPath}`,
+          `Repo root: ${repo.root}`,
+          `Git dir: ${repo.gitDir}`,
+          `Repository relationship: ${repoRelationship}`,
+          `Approval required: yes`,
+          `Changed files: ${formatPathList(reviewReport.changedFiles)}`,
+          `Excluded files: ${formatPathList(filtered.excludedFiles)}`,
+          `Staged files: ${formatPathList(filtered.safeFiles)}`,
+          `Proposed commit message: ${proposedCommitMessage}`,
+          `Deferrable findings: ${reviewReport.findings.filter(isDeferrableReviewFinding).map((finding) => `${finding.id} (${finding.status})`).join(", ")}`,
+          `Blocking reason: ${blockingReason}`,
+        ],
+      };
+    }
+
+    if (!followUpIssuePresent) {
+      const blockingReason = "Deferrable review findings require a follow-up issue before committing.";
+      return {
+        issueId: context.issueId,
+        workflowName,
+        issueTitle: snapshot.issue.title,
+        repoRoot: repo.root,
+        gitDir: repo.gitDir,
+        repoRelationship,
+        approvalRequired: true,
+        autoCommitAllowed: rules.autoCommitAllowed,
+        conventionalCommitsRequired: rules.conventionalCommitsRequired,
+        commitMessageStyle: rules.commitMessageStyle,
+        proposedCommitMessage,
+        changedFiles: reviewReport.changedFiles,
+        excludedFiles: filtered.excludedFiles,
+        stagedFiles: filtered.safeFiles,
+        statusPreview: statusPreviewResult.stdout,
+        diffPreview: diffPreviewResult.stdout,
+        reviewReportPath: reviewReport.filePath,
+        reviewReportPassed: reviewReport.passed,
+        evidenceReviewLogged,
+        blockingReason,
+        rulesPath,
+        evidence: buildCommitEvidence({
+          issueId: context.issueId,
+          workflowName,
+          issueTitle: snapshot.issue.title,
+          repoRoot: repo.root,
+          gitDir: repo.gitDir,
+          repoRelationship,
+          approvalRequired: true,
+          autoCommitAllowed: rules.autoCommitAllowed,
+          conventionalCommitsRequired: rules.conventionalCommitsRequired,
+          commitMessageStyle: rules.commitMessageStyle,
+          proposedCommitMessage,
+          changedFiles: reviewReport.changedFiles,
+          excludedFiles: filtered.excludedFiles,
+          stagedFiles: filtered.safeFiles,
+          statusPreview: statusPreviewResult.stdout,
+          diffPreview: diffPreviewResult.stdout,
+          reviewReportPath: reviewReport.filePath,
+          reviewReportPassed: reviewReport.passed,
+          evidenceReviewLogged,
+          blockingReason,
+          rulesPath,
+          evidence: [],
+          actions: [],
+        }),
+        actions: [
+          `Git rules: ${rulesPath}`,
+          `Repo root: ${repo.root}`,
+          `Git dir: ${repo.gitDir}`,
+          `Repository relationship: ${repoRelationship}`,
+          `Approval required: yes`,
+          `Changed files: ${formatPathList(reviewReport.changedFiles)}`,
+          `Excluded files: ${formatPathList(filtered.excludedFiles)}`,
+          `Staged files: ${formatPathList(filtered.safeFiles)}`,
+          `Proposed commit message: ${proposedCommitMessage}`,
+          `Deferrable findings: ${reviewReport.findings.filter(isDeferrableReviewFinding).map((finding) => `${finding.id} (${finding.status})`).join(", ")}`,
+          `Blocking reason: ${blockingReason}`,
+        ],
+      };
+    }
+  }
+
   return {
     issueId: context.issueId,
     workflowName,
@@ -1682,7 +1929,7 @@ async function buildCommitAssessment(
     repoRoot: repo.root,
     gitDir: repo.gitDir,
     repoRelationship,
-    approvalRequired: !rules.autoCommitAllowed && rules.humanApprovalRequired,
+    approvalRequired: baseApprovalRequired || deferredOrAcceptedRiskFindingsPresent,
     autoCommitAllowed: rules.autoCommitAllowed,
     conventionalCommitsRequired: rules.conventionalCommitsRequired,
     commitMessageStyle: rules.commitMessageStyle,

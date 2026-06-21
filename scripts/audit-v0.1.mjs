@@ -102,6 +102,7 @@ async function main() {
     ensureFile(join(sandboxRoot, "docs/PRD.md"), "init scaffold PRD");
     ensureFile(join(sandboxRoot, "docs/ARD.md"), "init scaffold ARD");
     ensureFile(join(sandboxRoot, "docs/troubleshooting/performance-improvements.md"), "init scaffold performance troubleshooting doc");
+    ensureFile(join(sandboxRoot, "docs/troubleshooting/evidence-summary.md"), "init scaffold evidence summary doc");
     ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/README.md"), "init scaffold feature workflow");
     ensureFile(join(sandboxRoot, ".flowness/workflows/feature-development/07-commit.md"), "init scaffold feature commit step");
     ensureFile(join(sandboxRoot, ".flowness/workflows/mvp-planning/08-commit.md"), "init scaffold mvp commit step");
@@ -139,7 +140,7 @@ async function main() {
     }
 
     const manifestJson = JSON.parse(readFileSync(join(sandboxRoot, ".flowness/harness-manifest.json"), "utf8"));
-    if (manifestJson.version !== "0.2.4") {
+    if (manifestJson.version !== "0.2.5") {
       throw new Error("harness manifest version is incorrect.");
     }
     if (manifestJson.contextFiles.findings !== ".flowness/findings/README.md") {

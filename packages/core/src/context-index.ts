@@ -207,7 +207,7 @@ function buildPurpose(areaName: string, candidateFileName: string, symbols: read
   }
 
   if (/\b(review|findings|report)\b/.test(joined)) {
-    return "Capture review output and concise findings.";
+    return "Capture review output, separate hard blockers from deferrable blockers, and keep findings concise.";
   }
 
   if (/\b(decision|rationale|choice)\b/.test(joined)) {
@@ -479,11 +479,11 @@ function buildWorkspaceAreas(
     },
     {
       area: "findings",
-      purpose: "Record only real findings using the compact Problem / Expected / Actual format.",
+      purpose: "Record real findings with lifecycle statuses, blocker kind, and compact evidence.",
       entryFiles: [".flowness/findings/README.md", ".flowness/templates/finding-template.md"],
       tests: [],
-      symbols: ["Problem", "Expected", "Actual", "Evidence", "Fix", "Regression test"],
-      aliases: ["finding", "findings", "blocking finding"],
+      symbols: ["Problem", "Status", "Blocker kind", "Evidence", "Fix", "Regression test"],
+      aliases: ["finding", "findings", "blocking finding", "deferred finding", "accepted-risk finding"],
       commands: ["flowness review:run --issue ISSUE-ID"],
     },
     {

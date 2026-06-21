@@ -71,7 +71,7 @@ function getCliVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     return pkg.version;
   } catch {
-    return "0.2.4";
+    return "0.2.5";
   }
 }
 

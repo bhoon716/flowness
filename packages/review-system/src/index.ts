@@ -3,7 +3,9 @@ import { readdir } from "node:fs/promises";
 import type {
   EvidenceRecord,
   IssueType,
+  ReviewBlockerKind,
   ReviewFinding,
+  ReviewFindingStatus,
   ReviewResult,
   ReviewRole,
   WorkflowState,
@@ -67,6 +69,47 @@ const severityRank: Record<ReviewFinding["severity"], number> = {
   low: 0,
 };
 
+const resolvedFindingStatuses: readonly ReviewFindingStatus[] = [
+  "addressed",
+  "closed",
+];
+
+function defaultBlockerKindForSeverity(severity: ReviewFinding["severity"]): ReviewBlockerKind {
+  return severity === "critical" || severity === "high" ? "hard" : "deferrable";
+}
+
+function isResolvedFindingStatus(status: ReviewFindingStatus): boolean {
+  return resolvedFindingStatuses.includes(status);
+}
+
+function isHardBlockerFinding(finding: ReviewFinding): boolean {
+  return finding.blockerKind === "hard" && !isResolvedFindingStatus(finding.status);
+}
+
+function isDeferrableBlockerFinding(finding: ReviewFinding): boolean {
+  return finding.blockerKind === "deferrable" && !isResolvedFindingStatus(finding.status);
+}
+
+function isBlockingFinding(finding: ReviewFinding): boolean {
+  return isHardBlockerFinding(finding) || isDeferrableBlockerFinding(finding);
+}
+
+function renderBooleanLabel(value: boolean): string {
+  return value ? "yes" : "no";
+}
+
+function renderFollowUpIssueLabel(finding: ReviewFinding): string {
+  return finding.requiresFollowUpIssue ? "required" : "none";
+}
+
+function renderUserApprovalLabel(finding: ReviewFinding): string {
+  if (finding.status === "deferred" || finding.status === "accepted-risk") {
+    return "required before commit";
+  }
+
+  return "not required";
+}
+
 function createFinding(
   role: ReviewRole,
   sequence: number,
@@ -76,16 +119,20 @@ function createFinding(
   evidence: readonly EvidenceRecord[] = [],
   filePath: string | null = inferFindingFilePath(evidence),
   rationale = problem,
+  status: ReviewFindingStatus = "open",
+  blockerKind: ReviewBlockerKind = defaultBlockerKindForSeverity(severity),
 ): ReviewFinding {
   return {
     id: `${reviewRolePrefixes[role]}-${String(sequence).padStart(3, "0")}`,
     perspective: role,
     severity,
+    status,
+    blockerKind,
     filePath,
     evidence: [...evidence],
     problem,
     recommendation,
-    requiresFollowUpIssue: severity === "critical" || severity === "high",
+    requiresFollowUpIssue: blockerKind === "deferrable",
     rationale,
   };
 }
@@ -112,6 +159,37 @@ function evidenceContains(
   pattern: RegExp,
 ): boolean {
   return evidence.some((item) => pattern.test(item.title) || pattern.test(item.detail ?? ""));
+}
+
+function evidenceText(evidence: readonly EvidenceRecord[]): string {
+  return evidence
+    .flatMap((item) => [
+      item.title,
+      item.detail ?? "",
+      item.location ?? "",
+    ])
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasCompactPerformanceSummary(evidence: readonly EvidenceRecord[]): boolean {
+  const text = evidenceText(evidence).toLowerCase();
+  if (text.length === 0) {
+    return false;
+  }
+
+  const requiredPatterns = [
+    /scenario\s*:/i,
+    /(before|baseline)\s*:/i,
+    /(after|result)\s*:/i,
+    /(workload|iterations?)\s*:/i,
+    /(key metric|metric)\s*:/i,
+    /(raw report|report path)\s*:/i,
+    /limitations?\s*:/i,
+  ];
+
+  return requiredPatterns.every((pattern) => pattern.test(text));
 }
 
 function hasCodeFileEvidence(evidence: readonly EvidenceRecord[]): boolean {
@@ -213,6 +291,23 @@ function renderSeverityLabel(severity: ReviewFinding["severity"]): string {
 
 function sortFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
   return [...findings].sort((left, right) => {
+    const blockerRank = (finding: ReviewFinding): number => {
+      if (isHardBlockerFinding(finding)) {
+        return 0;
+      }
+
+      if (isDeferrableBlockerFinding(finding)) {
+        return 1;
+      }
+
+      return 2;
+    };
+
+    const blockerDelta = blockerRank(left) - blockerRank(right);
+    if (blockerDelta !== 0) {
+      return blockerDelta;
+    }
+
     const severityDelta = severityRank[right.severity] - severityRank[left.severity];
     if (severityDelta !== 0) {
       return severityDelta;
@@ -223,11 +318,11 @@ function sortFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
 }
 
 function resultStatusFromFindings(findings: readonly ReviewFinding[]): ReviewResult["status"] {
-  if (findings.some((finding) => finding.severity === "critical" || finding.severity === "high")) {
+  if (findings.some(isHardBlockerFinding)) {
     return "fail";
   }
 
-  if (findings.length > 0) {
+  if (findings.some(isDeferrableBlockerFinding)) {
     return "concern";
   }
 
@@ -236,17 +331,21 @@ function resultStatusFromFindings(findings: readonly ReviewFinding[]): ReviewRes
 
 function summarizeResult(role: ReviewRole, findings: readonly ReviewFinding[]): string {
   if (findings.length === 0) {
-    return `${role} found no blocking concerns.`;
+    return `${role} found no blockers.`;
   }
 
-  const blockingCount = findings.filter((finding) => finding.severity === "critical" || finding.severity === "high").length;
-  const concernCount = findings.length - blockingCount;
+  const hardBlockingCount = findings.filter(isHardBlockerFinding).length;
+  const deferrableCount = findings.filter(isDeferrableBlockerFinding).length;
 
-  if (blockingCount > 0) {
-    return `${role} found ${blockingCount} blocking issue(s) and ${concernCount} additional concern(s).`;
+  if (hardBlockingCount > 0) {
+    return `${role} found ${hardBlockingCount} hard blocker(s) and ${deferrableCount} deferrable concern(s).`;
   }
 
-  return `${role} found ${concernCount} concern(s).`;
+  if (deferrableCount > 0) {
+    return `${role} found ${deferrableCount} deferrable concern(s).`;
+  }
+
+  return `${role} found no blockers.`;
 }
 
 function reviewArchitecture(input: ReviewRunInput): ReviewResult {
@@ -279,6 +378,11 @@ function reviewArchitecture(input: ReviewRunInput): ReviewResult {
       "medium",
       "Workflow state does not point to a current step.",
       "Rebuild the workflow state before treating the review as authoritative.",
+      input.evidence,
+      undefined,
+      undefined,
+      "open",
+      "hard",
     ));
   }
 
@@ -312,6 +416,10 @@ function reviewCorrectness(input: ReviewRunInput): ReviewResult {
       "Code files are present, but no validation evidence was attached.",
       "Run the relevant verification commands and attach the command output before merging.",
       input.evidence,
+      undefined,
+      undefined,
+      "open",
+      "hard",
     ));
   }
 
@@ -355,6 +463,10 @@ function reviewSecurity(input: ReviewRunInput): ReviewResult {
       "Code changes were attached without any validation output.",
       "Re-run the relevant checks and attach the exact command output so the security review can confirm the surface area.",
       input.evidence,
+      undefined,
+      undefined,
+      "open",
+      "hard",
     ));
   }
 
@@ -380,6 +492,10 @@ function reviewTestCoverage(input: ReviewRunInput): ReviewResult {
       "No test evidence was recorded for a code-facing review.",
       "Attach the smallest relevant regression test or verification command output before merging.",
       input.evidence,
+      undefined,
+      undefined,
+      "open",
+      "hard",
     ));
   }
 
@@ -427,14 +543,16 @@ function reviewMaintainability(input: ReviewRunInput): ReviewResult {
 function reviewPerformance(input: ReviewRunInput): ReviewResult {
   const findings: ReviewFinding[] = [];
   if (input.evidence.length > 25) {
-    findings.push(createFinding(
-      "Performance Reviewer",
-      1,
-      "low",
-      "Evidence volume is large for a lightweight review.",
-      "Trim the evidence to the smallest reproducible subset before requesting another pass.",
-      input.evidence,
-    ));
+    if (!hasCompactPerformanceSummary(input.evidence)) {
+      findings.push(createFinding(
+        "Performance Reviewer",
+        1,
+        "low",
+        "Evidence volume is large, but no compact performance summary was attached.",
+        "Add a compact summary with the scenario, baseline, result, workload, key metric, raw report path, limitations, and follow-up issue if any.",
+        input.evidence,
+      ));
+    }
   }
 
   if (evidenceContains(input.evidence, /(slow|timeout|performance|latency)/i)) {
@@ -445,6 +563,10 @@ function reviewPerformance(input: ReviewRunInput): ReviewResult {
       "The review evidence suggests a possible performance regression.",
       "Measure the hot path directly and attach the benchmark or profiling output.",
       input.evidence,
+      undefined,
+      undefined,
+      "open",
+      "deferrable",
     ));
   }
 
@@ -575,11 +697,17 @@ function renderFindingMarkdown(finding: ReviewFinding): string {
     `#### ${finding.id}`,
     `- Perspective: ${finding.perspective}`,
     `- Severity: ${renderSeverityLabel(finding.severity)}`,
+    `- Blocking: ${renderBooleanLabel(isBlockingFinding(finding))}`,
+    `- Deferrable: ${renderBooleanLabel(finding.blockerKind === "deferrable")}`,
+    `- Status: ${finding.status}`,
+    `- Blocker kind: ${finding.blockerKind}`,
     `- File/path: ${finding.filePath ?? "none"}`,
     "- Evidence:",
     ...evidenceLines,
     `- Problem: ${finding.problem}`,
     `- Recommendation: ${finding.recommendation}`,
+    `- Follow-up issue: ${renderFollowUpIssueLabel(finding)}`,
+    `- User approval: ${renderUserApprovalLabel(finding)}`,
     `- Requires follow-up issue: ${finding.requiresFollowUpIssue ? "yes" : "no"}`,
     `- Rationale: ${finding.rationale}`,
   ].join("\n");
@@ -590,12 +718,16 @@ function renderReviewResult(result: ReviewResult): string {
   const findingLines = findings.length === 0
     ? ["- None"]
     : findings.map((finding) => renderFindingMarkdown(finding));
+  const hardBlockerCount = findings.filter(isHardBlockerFinding).length;
+  const deferrableBlockerCount = findings.filter(isDeferrableBlockerFinding).length;
 
   return [
     `### ${result.role}`,
     "",
     `- Status: ${result.status}`,
     `- Summary: ${result.summary}`,
+    `- Hard blockers: ${hardBlockerCount}`,
+    `- Deferrable blockers: ${deferrableBlockerCount}`,
     "- Findings:",
     ...findingLines.map((line) => `  ${line}`),
   ].join("\n");
@@ -634,8 +766,8 @@ function renderReviewReportMarkdown(report: ReviewReport): string {
     `- Workflow: ${report.workflowId}`,
     `- Reviewed At: ${report.reviewedAt}`,
     `- Passed: ${report.passed ? "yes" : "no"}`,
-    `- Blocking Roles: ${report.blockingRoles.length === 0 ? "none" : report.blockingRoles.join(", ")}`,
-    `- Concern Roles: ${report.concernRoles.length === 0 ? "none" : report.concernRoles.join(", ")}`,
+    `- Hard Blocking Roles: ${report.blockingRoles.length === 0 ? "none" : report.blockingRoles.join(", ")}`,
+    `- Deferrable Roles: ${report.concernRoles.length === 0 ? "none" : report.concernRoles.join(", ")}`,
     "",
     "## Target",
     report.target,
@@ -734,7 +866,7 @@ function collectRecommendedNextActions(results: readonly ReviewResult[]): string
   const actions = new Set<string>();
   for (const result of results) {
     for (const finding of result.findings) {
-      if (finding.recommendation.trim().length > 0 && (finding.severity === "critical" || finding.severity === "high" || finding.severity === "medium")) {
+      if (finding.recommendation.trim().length > 0 && (isHardBlockerFinding(finding) || isDeferrableBlockerFinding(finding))) {
         actions.add(finding.recommendation);
       }
     }
@@ -747,7 +879,7 @@ function collectFollowUpIssueSuggestions(results: readonly ReviewResult[]): stri
   const suggestions = new Set<string>();
   for (const result of results) {
     for (const finding of result.findings) {
-      if (!finding.requiresFollowUpIssue) {
+      if (!finding.requiresFollowUpIssue || isResolvedFindingStatus(finding.status)) {
         continue;
       }
 
@@ -769,7 +901,7 @@ function collectLimitations(input: ReviewRunInput, results: readonly ReviewResul
   }
 
   if (results.some((result) => result.status === "concern")) {
-    limitations.add("Some perspectives raised concerns that should be reviewed before merge.");
+    limitations.add("Some perspectives raised deferrable blockers that should be reviewed, deferred, or explicitly accepted before merge.");
   }
 
   return [...limitations];
@@ -807,7 +939,7 @@ export async function writeReviewReportToIssue(
     summary: coordinator.passed
       ? coordinator.concernRoles.length === 0
         ? "All review agents passed."
-        : `No blocking findings, but concern roles were recorded: ${coordinator.concernRoles.join(", ")}`
+        : `No hard blocking findings, but deferrable concern roles were recorded: ${coordinator.concernRoles.join(", ")}`
       : `Blocking review agents: ${coordinator.blockingRoles.join(", ")}`,
     fileName,
     filePath: `${paths.reviewsDir}/${fileName}`,

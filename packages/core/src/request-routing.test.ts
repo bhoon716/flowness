@@ -102,6 +102,7 @@ test("request analysis identifies rule change candidates and requires approval",
   assert.equal(analysis.clarificationQuestions.length, 0);
   assert.match(analysis.existingRule ?? "", /feature/i);
   assert.match(analysis.proposedRule ?? "", /feature-based/i);
+  assert.match(analysis.reason, /durable React convention/i);
 });
 
 test("request analysis derives readable issue slugs from request intent", () => {

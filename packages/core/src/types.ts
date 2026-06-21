@@ -46,6 +46,24 @@ export const reviewRoleValues = [
 
 export type ReviewRole = (typeof reviewRoleValues)[number];
 
+export const reviewFindingStatusValues = [
+  "open",
+  "addressed",
+  "closed",
+  "deferred",
+  "accepted-risk",
+] as const;
+
+export type ReviewFindingStatus = (typeof reviewFindingStatusValues)[number];
+
+export const reviewBlockerKindValues = [
+  "hard",
+  "deferrable",
+  "none",
+] as const;
+
+export type ReviewBlockerKind = (typeof reviewBlockerKindValues)[number];
+
 export type GateMode = "always" | "optional" | "never";
 
 export interface EvidenceRecord {
@@ -162,6 +180,8 @@ export interface ReviewFinding {
   readonly id: string;
   readonly perspective: ReviewRole;
   readonly severity: "critical" | "high" | "medium" | "low";
+  readonly status: ReviewFindingStatus;
+  readonly blockerKind: ReviewBlockerKind;
   readonly filePath: string | null;
   readonly evidence?: readonly EvidenceRecord[];
   readonly problem: string;
