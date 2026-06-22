@@ -228,7 +228,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.5");
+  assert.equal(manifest.version, "0.2.6");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.contextFiles.activeIssue, ".flowness/state/active-issue.md");
   assert.equal(manifest.contextFiles.navigation, ".flowness/navigation.md");

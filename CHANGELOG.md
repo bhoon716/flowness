@@ -25,6 +25,40 @@ All notable changes to Flowness are recorded here.
 ### Security
 - None.
 
+## [0.2.6] - 2026-06-22
+
+### Added
+- Publishable release notes for the previously completed hardening work, promoted from the 0.2.5 preparation line because 0.2.5 was already present on npm.
+- CLI smoke coverage for the init, run, evidence, review, and commit-gate flow.
+- Workflow ID consistency checks so routing aliases match the actual workflow blueprints.
+
+### Changed
+- Flowness remains positioned as a conversational workflow harness for traceable AI-agent development.
+- English, Korean, and Simplified Chinese READMEs stay linked and aligned across GitHub and npm.
+- Package metadata stays consistent across repository, homepage, and issue tracker fields.
+- The CLI entrypoint is split into parser, handlers, services, and formatters while preserving the public command surface.
+- Review wording uses structured and evidence-based checks instead of implying a deep human-style reviewer.
+- Compact evidence summaries are the preferred surface for large raw artifacts in performance-sensitive review flows.
+
+### Fixed
+- README and package metadata checks now validate the multilingual links and official repository URLs together.
+- The review and commit gates no longer deadlock on deferrable concerns once follow-up issues and approvals are recorded.
+- Evidence review accepts large raw artifacts when a compact summary is available.
+
+### Migration Notes
+- Existing workspaces can keep using the current `@flowness-labs/*` package names.
+- Add compact evidence summaries for performance-sensitive work before asking the review gate to approve it.
+- If a review finding is intentionally deferred, create the follow-up issue first and record approval before commit.
+
+### Deprecated
+- None.
+
+### Removed
+- None.
+
+### Security
+- None.
+
 ## [0.2.5] - 2026-06-21
 
 ### Added

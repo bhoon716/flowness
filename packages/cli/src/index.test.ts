@@ -351,7 +351,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.5");
+  assert.equal(manifest.version, "0.2.6");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
   assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");
@@ -798,7 +798,7 @@ test("runCli upgrade --dry-run reports a plan without writing files", async () =
     const result = await runCli(["upgrade", "--dry-run"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: legacy/);
-        assert.match(result.output, /Target version: 0\.2\.5/);
+    assert.match(result.output, /Target version: 0\.2\.6/);
     assert.match(result.output, /Will regenerate:/);
     assert.match(result.output, /Will add if missing:/);
     assert.match(result.output, /Will patch:/);
@@ -867,7 +867,7 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
     const result = await runCli(["upgrade", "--apply"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: 0\.1\.4/);
-    assert.match(result.output, /Target version: 0\.2\.5/);
+    assert.match(result.output, /Target version: 0\.2\.6/);
     assert.match(result.output, /Backup path:/);
     assert.match(result.output, /Report path:/);
     assert.match(result.output, /Updated files:/);
@@ -1186,8 +1186,8 @@ test("runCli upgrade commands use dynamic versioning and respect overrides", asy
     // default target follows package version
     const defaultUpgrade = await runCli(["upgrade", "--dry-run"]);
     assert.equal(defaultUpgrade.exitCode, 0);
-    // targetVersion should match current package version which is "0.2.5"
-    assert.match(defaultUpgrade.output, /Target version: 0\.2\.5/);
+    // targetVersion should match current package version which is "0.2.6"
+    assert.match(defaultUpgrade.output, /Target version: 0\.2\.6/);
 
     // upgrade --to respects explicit target version
     const explicitUpgrade = await runCli(["upgrade", "--dry-run", "--to", "0.2.1"]);
