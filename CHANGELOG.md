@@ -25,6 +25,36 @@ All notable changes to Flowness are recorded here.
 ### Security
 - None.
 
+## [0.2.7] - 2026-06-23
+
+### Added
+- Upgrade planning now preserves user-owned workspace data, writes a migration plan JSON artifact, and surfaces a clearer dry-run explanation before apply.
+- Risk analysis for destructive shell commands now reports dry-run impact and requires explicit confirmation where the CLI can inspect the command first.
+- Request analysis now exposes a visible decomposition proposal for broad requests before child issues are created.
+
+### Changed
+- Existing-project upgrades now distinguish generated artifacts, user-modified files, skipped paths, conflicts, backups, and manual actions.
+- The AGENTS and rule scaffolds now call out safe migrations, dangerous-command approval, and request decomposition as explicit operating rules.
+- CLI usage and documentation now mention `flowness upgrade --explain`, `--force`, and risky-command confirmation where relevant.
+
+### Fixed
+- Upgrade apply now refuses to proceed on conflicting generated files unless the operator explicitly confirms the remaining manual work.
+- Generated issue decomposition output now shows the proposed child issues alongside the created parent issue.
+
+### Migration Notes
+- Existing workspaces should use `flowness upgrade --dry-run` first.
+- If the upgrade plan still has conflicts after review, rerun with `flowness upgrade --apply --force` only after you explicitly approve the manual follow-up work.
+- Broad requests may now be proposed as multiple issues instead of always being collapsed into one work item.
+
+### Deprecated
+- None.
+
+### Removed
+- None.
+
+### Security
+- Dangerous commands are now classified before execution when the CLI can inspect the command first.
+
 ## [0.2.6] - 2026-06-22
 
 ### Added

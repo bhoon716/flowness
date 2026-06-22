@@ -1654,6 +1654,8 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     "# AGENTS",
     "",
     "Keep this file short. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, inspection, or manual escape hatches.",
+    "Existing project upgrades must preserve user data, and dangerous commands need a dry-run impact report plus explicit approval before execution.",
+    "Broad requests may decompose into 1..N issues when that makes the work safer or clearer.",
     "",
     "## Start Here",
     "- Read `.flowness/navigation.md` first.",
@@ -1665,6 +1667,8 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     "- Key escape hatches: `flowness review:run --issue ISSUE-ID`, `flowness test --summary`, and `flowness audit --changed`.",
     "- Treat `.flowness/` as the source of truth and `.agent/` as legacy only.",
     "- Keep issue logs append-only and keep evidence summaries short and reviewable.",
+    "- Upgrade existing projects with `flowness upgrade --dry-run` first; use `--apply` only after reviewing the plan.",
+    "- Ask before destructive actions, especially dangerous git, filesystem, or database commands.",
     "- Never edit workflow state by hand.",
     "",
     "## Current Project",
@@ -1727,11 +1731,15 @@ export function renderGeneratedProjectCommandsMarkdown(analysis: ProjectAnalysis
       status: "flowness status --issue ISSUE-ID",
       locate: 'flowness locate "<task description>"',
       testSummary: "flowness test --summary",
+      testConfirmRisk: "flowness test --summary --confirm-risk",
       auditChanged: "flowness audit --changed",
       auditFull: "flowness audit --full",
+      auditConfirmRisk: "flowness audit --full --confirm-risk",
       evidenceAdd: "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path",
       ruleUpdate: "flowness rule:update --id RULE-ID --input \"...\"",
       validate: "flowness validate",
+      upgradeExplain: "flowness upgrade --dry-run --explain",
+      upgradeForce: "flowness upgrade --apply --force",
       workflowValidate: "flowness workflow:validate [workflow-id]",
     },
     project: {
@@ -1788,7 +1796,7 @@ function renderGeneratedHarnessManifestJson(
   generatedFileHashes: GeneratedFileHashes = {},
 ): string {
   const payload = {
-    version: "0.2.6",
+    version: "0.2.7",
     project: {
       name: analysis.projectName,
       packageManager: analysis.packageManager,
@@ -1829,11 +1837,15 @@ function renderGeneratedHarnessManifestJson(
       status: "flowness status --issue ISSUE-ID",
       locate: "flowness locate \"<task description>\"",
       testSummary: "flowness test --summary",
+      testConfirmRisk: "flowness test --summary --confirm-risk",
       auditChanged: "flowness audit --changed",
       auditFull: "flowness audit --full",
+      auditConfirmRisk: "flowness audit --full --confirm-risk",
       evidenceAdd: "flowness evidence:add --issue ISSUE-ID --kind file --title \"...\" --location path",
       ruleUpdate: "flowness rule:update --id RULE-ID --input \"...\"",
       validate: "flowness validate",
+      upgradeExplain: "flowness upgrade --dry-run --explain",
+      upgradeForce: "flowness upgrade --apply --force",
     },
     relevantRules: deriveRelevantRuleFiles(analysis),
     activeIssue: activeIssue === null ? null : {
@@ -2122,6 +2134,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
         "Treat casual conversation and simple questions as non-issue work.",
         "Use `rule_change_candidate` when a request changes a durable convention or policy.",
         "Reuse an existing open issue when the request matches the same work item.",
+        "Split broad requests into 1..N issues when the deliverables are safer or clearer as separate work items.",
         "Route feature, bugfix, refactor, review, planning, and performance work to the matching workflow.",
       ],
       examples: [
@@ -2152,7 +2165,8 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       ruleId: "issue-decomposition",
       scope: "Split broad requests into independently executable child issues.",
       policy: [
-        "Create a parent issue for the plan and child issues for execution slices.",
+        "Create a parent issue for the plan and show the proposed child issues before creating them.",
+        "Use multiple issues only when the deliverables are meaningfully independent or safer to verify separately.",
         "Keep each child issue small enough to verify independently.",
         "Include goal, acceptance criteria, dependencies, and evidence requirements.",
       ],
@@ -2185,6 +2199,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       policy: [
         "Initialize once, then work through the coding agent in natural language.",
         "Use Flowness for new work and keep `.agent/` as legacy only.",
+        "Upgrade existing projects with `flowness upgrade --dry-run` before applying changes.",
         "Analyze the request before creating or reusing work items.",
         "Ask for clarification when the requirements are incomplete.",
       ],
@@ -2201,6 +2216,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       policy: [
         "Route review, bugfix, refactor, planning, and performance work to their workflows.",
         "Route durable convention changes to rule approval instead of one-off issue creation.",
+        "Decompose broad requests into 1..N issues when the deliverables are safer or clearer as separate work items.",
         "Do not create duplicate issues when a matching open issue already exists.",
         "Only create new issues when a real task is being started.",
       ],
@@ -2270,7 +2286,9 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
       policy: [
         "Resolve the repository from the changed files, not from the process cwd.",
         "Stage only the intended files and keep commits tied to evidence review.",
-        "Forbid `git add .`, `git commit -a`, force push, rebase, reset --hard, and merge by default.",
+        "Dangerous commands need a dry-run impact report and explicit approval before execution.",
+        "Classify `git reset`, `git clean`, `git checkout .`, `git restore .`, force push, rebase, reset --hard, and merge by risk before running them.",
+        "Forbid `git add .` and `git commit -a` by default.",
         "Avoid committing logs, temporary files, nested repo metadata, or generated noise.",
       ],
       examples: [
@@ -2287,6 +2305,7 @@ export function renderGeneratedRuleArtifacts(analysis: ProjectAnalysis): readonl
         "Commit only after the workflow evidence bar is met.",
         "Use concise conventional-style commit messages.",
         "Do not use `git add .` or `git commit -a`.",
+        "Do not rewrite work with destructive git commands without explicit approval.",
         "Do not commit automatically before the workflow commit step.",
       ],
       examples: [
@@ -2842,6 +2861,8 @@ export function renderGeneratedScriptsReadmeMarkdown(analysis: ProjectAnalysis):
     "## Notes",
     "- Keep helper scripts small and deterministic.",
     "- If a command is missing, add a TODO instead of guessing.",
+    "- If a command looks destructive, inspect the dry-run impact and ask for explicit approval before running it.",
+    "- Dangerous shell commands should be handled by the command-risk analyzer before execution.",
     "- Read `.flowness/navigation.md` before broad file searching or manual navigation.",
     "- Use `flowness step --issue ISSUE-ID`, `flowness status --issue ISSUE-ID`, and `flowness evidence:add ...` as workflow escape hatches instead of editing workflow JSON by hand.",
     "",

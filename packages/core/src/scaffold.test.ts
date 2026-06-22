@@ -228,7 +228,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.6");
+  assert.equal(manifest.version, "0.2.7");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.contextFiles.activeIssue, ".flowness/state/active-issue.md");
   assert.equal(manifest.contextFiles.navigation, ".flowness/navigation.md");
@@ -265,7 +265,9 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(gitRules, /Resolve the repository from the changed files, not from the process cwd\./);
   assert.match(gitRules, /## Policy/);
   assert.match(gitRules, /Stage only the intended files and keep commits tied to evidence review\./);
-  assert.match(gitRules, /Forbid `git add \.`, `git commit -a`, force push, rebase, reset --hard, and merge by default\./);
+  assert.match(gitRules, /Dangerous commands need a dry-run impact report and explicit approval before execution\./);
+  assert.match(gitRules, /Classify `git reset`, `git clean`, `git checkout \.`, `git restore \.`, force push, rebase, reset --hard, and merge by risk before running them\./);
+  assert.match(gitRules, /Forbid `git add \.` and `git commit -a` by default\./);
   assert.match(gitRules, /Avoid committing logs, temporary files, nested repo metadata, or generated noise\./);
 
   const commitPolicy = await readFile(join(rootDir, ".flowness/rules/commit-policy.md"), "utf8");
@@ -273,6 +275,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
   assert.match(commitPolicy, /Commit only after the workflow evidence bar is met\./);
   assert.match(commitPolicy, /Use concise conventional-style commit messages\./);
   assert.match(commitPolicy, /Do not use `git add \.` or `git commit -a`\./);
+  assert.match(commitPolicy, /Do not rewrite work with destructive git commands without explicit approval\./);
   assert.match(commitPolicy, /Do not commit automatically before the workflow commit step\./);
 
   const featureWorkflowFiles = (await readdir(join(rootDir, ".flowness/workflows/feature-development"))).sort();

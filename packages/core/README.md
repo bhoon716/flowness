@@ -3,12 +3,14 @@
 The Flowness core package provides the workspace scaffolding, request routing, evidence helpers, review models, and generated artifacts that support the conversational harness.
 
 > Flowness is built around one normal human action: run `flowness init` once, then work through the coding agent in natural language. The CLI and core package keep the workflow explicit, but they are not meant to turn day-to-day work back into a command-heavy process.
+Broader requests can be decomposed into parent and child issues when that makes the work safer or clearer, and existing workspaces should use `flowness upgrade --dry-run` before applying a migration.
 
 ## What This Package Contains
 
 - Core types for issues, workflows, evidence, logs, and review findings.
 - Scaffold generation for AGENTS, navigation, rules, workflows, templates, and docs.
 - Request routing that decides when to create issues, when to ask clarifying questions, and when a durable rule change is needed.
+- Request routing that decides when to create issues, when to ask clarifying questions, when to decompose broad requests, and when a durable rule change is needed.
 - Review and commit primitives that keep evidence, blockers, and append-only records aligned.
 
 ## When to Use It

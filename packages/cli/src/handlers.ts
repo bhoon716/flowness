@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   analyzeRequest,
   type ClarificationQuestion,
+  analyzeCommandRisk,
   applyHumanGateInstruction,
   appendTextFile,
   ensureDirectory,
@@ -94,7 +95,7 @@ export function getPackageVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     return pkg.version;
   } catch {
-    return "0.2.6";
+    return "0.2.7";
   }
 }
 
@@ -173,11 +174,13 @@ export interface ParsedLocateCommand {
 export interface ParsedTestCommand {
   readonly kind: "test";
   readonly summary: boolean;
+  readonly confirmRisk: boolean;
 }
 
 export interface ParsedAuditCommand {
   readonly kind: "audit";
   readonly scope: "changed" | "full";
+  readonly confirmRisk: boolean;
 }
 
 export interface ParsedEvidenceAddCommand {
@@ -252,6 +255,8 @@ export interface ParsedUpgradeCommand {
   readonly mode: "dry-run" | "apply";
   readonly fromVersion: string | null;
   readonly toVersion: string | null;
+  readonly explain: boolean;
+  readonly force: boolean;
 }
 
 export interface ParsedConfigGateCommand {
@@ -1027,10 +1032,16 @@ function parseLocateCommand(rest: readonly string[]): ParsedLocateCommand {
 
 function parseTestCommand(rest: readonly string[]): ParsedTestCommand {
   let summary = true;
+  let confirmRisk = false;
 
   for (const token of rest) {
     if (token === "--summary" || token === "-s") {
       summary = true;
+      continue;
+    }
+
+    if (token === "--confirm-risk") {
+      confirmRisk = true;
       continue;
     }
 
@@ -1040,11 +1051,13 @@ function parseTestCommand(rest: readonly string[]): ParsedTestCommand {
   return {
     kind: "test",
     summary,
+    confirmRisk,
   };
 }
 
 function parseAuditCommand(rest: readonly string[]): ParsedAuditCommand {
   let scope: "changed" | "full" = "changed";
+  let confirmRisk = false;
 
   for (const token of rest) {
     if (token === "--changed") {
@@ -1057,12 +1070,18 @@ function parseAuditCommand(rest: readonly string[]): ParsedAuditCommand {
       continue;
     }
 
+    if (token === "--confirm-risk") {
+      confirmRisk = true;
+      continue;
+    }
+
     throw new Error(`Unexpected extra arguments: ${token}`);
   }
 
   return {
     kind: "audit",
     scope,
+    confirmRisk,
   };
 }
 
@@ -1830,6 +1849,8 @@ function parseUpgradeCommand(rest: readonly string[]): ParsedUpgradeCommand {
   let seenModeFlag: "dry-run" | "apply" | null = null;
   let fromVersion: string | null = null;
   let toVersion: string | null = null;
+  let explain = false;
+  let force = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
@@ -1844,6 +1865,16 @@ function parseUpgradeCommand(rest: readonly string[]): ParsedUpgradeCommand {
       }
       mode = requestedMode;
       seenModeFlag = requestedMode;
+      continue;
+    }
+
+    if (token === "--explain") {
+      explain = true;
+      continue;
+    }
+
+    if (token === "--force") {
+      force = true;
       continue;
     }
 
@@ -1883,6 +1914,8 @@ function parseUpgradeCommand(rest: readonly string[]): ParsedUpgradeCommand {
     mode,
     fromVersion,
     toVersion,
+    explain,
+    force,
   };
 }
 
@@ -2251,6 +2284,12 @@ function formatRequestAnalysisSummary(analysis: RequestAnalysis): string {
     lines.push(`Primary issue: ${analysis.issuePlan.primaryIssue.title}`);
     lines.push(`Primary workflow: ${analysis.issuePlan.primaryIssue.workflowId}`);
     lines.push(`Child issues planned: ${analysis.issuePlan.childIssues.length}`);
+    if (analysis.issuePlan.childIssues.length > 0) {
+      lines.push("Proposed decomposition:");
+      for (const child of analysis.issuePlan.childIssues) {
+        lines.push(`- ${child.title} (${child.workflowId})`);
+      }
+    }
   }
 
   if (analysis.ruleChangeRuleId !== undefined) {
@@ -2368,6 +2407,18 @@ function formatRequestCreateSummary(input: {
 
   if (input.issue.childIssueIds !== undefined && input.issue.childIssueIds.length > 0) {
     lines.push(`Children: ${input.issue.childIssueIds.join(", ")}`);
+  }
+
+  if (input.analysis.issuePlan !== undefined && input.analysis.issuePlan.childIssues.length > 0) {
+    lines.push("Proposed decomposition:");
+    for (const child of input.analysis.issuePlan.childIssues) {
+      lines.push(`- ${child.title} (${child.workflowId})`);
+    }
+    if (input.issue.childIssueIds !== undefined && input.issue.childIssueIds.length > 0) {
+      lines.push("Decomposition approval was granted, so child issues were created.");
+    } else if (!input.reused) {
+      lines.push("Child issues were not created yet. Re-run with --force to approve the proposed decomposition.");
+    }
   }
 
   if (input.analysis.needsClarification) {
@@ -3313,6 +3364,25 @@ function renderJsonOutput(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function renderCommandRiskOutput(
+  analysis: Awaited<ReturnType<typeof analyzeCommandRisk>>,
+  action: "blocked" | "approved",
+): Record<string, unknown> {
+  return {
+    commandRisk: {
+      command: analysis.command,
+      category: analysis.category,
+      riskLevel: analysis.riskLevel,
+      warning: analysis.warning,
+      dryRunImpact: analysis.dryRunImpact,
+      safeAlternative: analysis.safeAlternative,
+      requiresExplicitConfirmation: analysis.requiresExplicitConfirmation,
+      intentClarification: analysis.intentClarification,
+      action,
+    },
+  };
+}
+
 function detectScriptCommand(packageManager: ProjectAnalysis["packageManager"], scriptName: string): string {
   switch (packageManager) {
     case "npm":
@@ -3402,7 +3472,7 @@ function collectGitChangedFiles(rootDir: string): { readonly files: readonly str
       continue;
     }
 
-    const pathText = trimmed.length > 3 ? trimmed.slice(3).trim() : "";
+    const pathText = trimmed.replace(/^[ MADRCU?!]{1,3}/, "").trim();
     if (pathText.length === 0) {
       continue;
     }
@@ -3475,6 +3545,31 @@ async function runTestCommand(command: ParsedTestCommand): Promise<CliResult> {
   const config = await readProjectConfig(rootDir);
   const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const testCommand = analysis.testCommand ?? detectScriptCommand(analysis.packageManager, "test");
+  let rawTestScript: string | null = null;
+  try {
+    const packageJson = JSON.parse(await readTextFile(join(rootDir, "package.json"))) as {
+      readonly scripts?: Record<string, unknown>;
+    };
+    const testScript = packageJson.scripts?.test;
+    if (typeof testScript === "string" && testScript.trim().length > 0) {
+      rawTestScript = testScript;
+    }
+  } catch {
+    rawTestScript = null;
+  }
+
+  const riskCommand = rawTestScript ?? testCommand;
+  const riskAnalysis = await analyzeCommandRisk(riskCommand, rootDir);
+  if (riskAnalysis.requiresExplicitConfirmation && !command.confirmRisk) {
+    return {
+      exitCode: 1,
+      output: renderJsonOutput({
+        requestedSummary: command.summary,
+        ...renderCommandRiskOutput(riskAnalysis, "blocked"),
+      }),
+    };
+  }
+
   const execution = runShellCommand(testCommand, rootDir);
   const combinedOutput = [execution.stdout, execution.stderr]
     .filter((chunk) => chunk.trim().length > 0)
@@ -3495,6 +3590,8 @@ async function runTestCommand(command: ParsedTestCommand): Promise<CliResult> {
     exitCode: summary.passed ? 0 : 1,
     output: renderJsonOutput({
       requestedSummary: command.summary,
+      ...renderCommandRiskOutput(riskAnalysis, "approved"),
+      confirmationRecorded: riskAnalysis.requiresExplicitConfirmation ? command.confirmRisk : false,
       ...summary,
     }),
   };
@@ -3530,6 +3627,29 @@ async function runAuditCommand(command: ParsedAuditCommand): Promise<CliResult> 
 
   if (command.scope === "full") {
     const auditCommand = detectScriptCommand(analysis.packageManager, "audit");
+    const riskAnalysis = await analyzeCommandRisk(auditCommand, rootDir);
+    if (!riskAnalysis.requiresExplicitConfirmation) {
+      const execution = runShellCommand(auditCommand, rootDir);
+      const output = [execution.stdout, execution.stderr]
+        .filter((chunk) => chunk.trim().length > 0)
+        .join("\n");
+
+      return {
+        exitCode: execution.exitCode === 0 ? 0 : 1,
+        output: output.length > 0 ? output : `${auditCommand} exited with code ${execution.exitCode}.`,
+      };
+    }
+
+    if (riskAnalysis.requiresExplicitConfirmation && !command.confirmRisk) {
+      return {
+        exitCode: 1,
+        output: renderJsonOutput({
+          scope: command.scope,
+          ...renderCommandRiskOutput(riskAnalysis, "blocked"),
+        }),
+      };
+    }
+
     const execution = runShellCommand(auditCommand, rootDir);
     const output = [execution.stdout, execution.stderr]
       .filter((chunk) => chunk.trim().length > 0)
@@ -3537,7 +3657,13 @@ async function runAuditCommand(command: ParsedAuditCommand): Promise<CliResult> 
 
     return {
       exitCode: execution.exitCode === 0 ? 0 : 1,
-      output: output.length > 0 ? output : `${auditCommand} exited with code ${execution.exitCode}.`,
+      output: renderJsonOutput({
+        scope: command.scope,
+        ...renderCommandRiskOutput(riskAnalysis, "approved"),
+        confirmationRecorded: riskAnalysis.requiresExplicitConfirmation ? command.confirmRisk : false,
+        exitCode: execution.exitCode,
+        output: output.length > 0 ? output : `${auditCommand} exited with code ${execution.exitCode}.`,
+      }),
     };
   }
 
@@ -3759,7 +3885,7 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
       workflowId,
     };
     const nextSequence = await findNextIssueSequence(rootDir);
-    const childIssueIds = analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined
+    const childIssueIds = analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined && command.force
       ? analysis.issuePlan.childIssues.map((child, index) => createIssueId(nextSequence + index + 1, child.title))
       : [];
     const decomposition = analysis.issuePlan === undefined
@@ -3789,7 +3915,7 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
 
     activeWorkspace = parentResult;
 
-    if (analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined) {
+    if (analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined && command.force) {
       for (let index = 0; index < analysis.issuePlan.childIssues.length; index += 1) {
         const childPlan = analysis.issuePlan.childIssues[index];
         if (childPlan === undefined) {
@@ -5404,8 +5530,8 @@ export function usage(): string {
     "  flowness step --issue <issue-id> [--approve]",
     "  flowness status --issue <issue-id>",
     "  flowness locate <task description>",
-    "  flowness test [--summary]",
-    "  flowness audit [--changed|--full]",
+    "  flowness test [--summary] [--confirm-risk]",
+    "  flowness audit [--changed|--full] [--confirm-risk]",
     "  flowness evidence:add --issue <issue-id> --kind <kind> --title <title> [--detail <text>] [--location <path>]",
     "  flowness workflow:step --issue <issue-id> [--approve]",
     "  flowness workflow:recover --issue <issue-id> --root-cause <text>",
@@ -5419,7 +5545,7 @@ export function usage(): string {
     "  flowness rule:list",
     "  flowness config:gate [--set <instruction>]",
     "  flowness validate",
-    "  flowness upgrade [--dry-run|--apply] [--from <version>] [--to <version>]",
+    "  flowness upgrade [--dry-run|--apply] [--from <version>] [--to <version>] [--explain] [--force]",
     "",
     "Implemented commands:",
     "  init",

@@ -163,33 +163,50 @@ test("parseCommand handles the new direct aliases", () => {
   const statusCommand = parseCommand(["status", "--issue", "ISSUE-001-TEST"]);
   const locateCommand = parseCommand(["locate", "request routing"]);
   const testCommand = parseCommand(["test", "--summary"]);
+  const confirmRiskTestCommand = parseCommand(["test", "--summary", "--confirm-risk"]);
   const auditCommand = parseCommand(["audit", "--changed"]);
+  const confirmRiskAuditCommand = parseCommand(["audit", "--full", "--confirm-risk"]);
   const fullAuditCommand = parseCommand(["audit", "--full"]);
   const evidenceCommand = parseCommand(["evidence:add", "--issue", "ISSUE-001-TEST", "--title", "README", "--location", "README.md"]);
   const ruleUpdateCommand = parseCommand(["rule:update", "--id", "tech/react", "--input", "feature-based"]);
   const issueCreateCommand = parseCommand(["issue:create", "--title", "Follow-up", "--type", "bugfix", "--parent-issue", "ISSUE-001-TEST", "--approval-note", "Accepted risk in review."]);
+  const explainUpgrade = parseCommand(["upgrade", "--dry-run", "--explain"]);
+  const forceUpgrade = parseCommand(["upgrade", "--apply", "--force"]);
 
   assert.equal(runCommand.kind, "request:create");
   assert.equal(stepCommand.kind, "workflow:step");
   assert.equal(statusCommand.kind, "status");
   assert.equal(locateCommand.kind, "locate");
   assert.equal(testCommand.kind, "test");
+  assert.equal(confirmRiskTestCommand.kind, "test");
   assert.equal(auditCommand.kind, "audit");
+  assert.equal(confirmRiskAuditCommand.kind, "audit");
   assert.equal(fullAuditCommand.kind, "audit");
   assert.equal(evidenceCommand.kind, "evidence:add");
   assert.equal(ruleUpdateCommand.kind, "rule:update");
   assert.equal(issueCreateCommand.kind, "issue:create");
+  assert.equal(explainUpgrade.kind, "upgrade");
+  assert.equal(forceUpgrade.kind, "upgrade");
   if (locateCommand.kind === "locate") {
     assert.equal(locateCommand.query, "request routing");
   }
   if (testCommand.kind === "test") {
     assert.equal(testCommand.summary, true);
+    assert.equal(testCommand.confirmRisk, false);
+  }
+  if (confirmRiskTestCommand.kind === "test") {
+    assert.equal(confirmRiskTestCommand.confirmRisk, true);
   }
   if (auditCommand.kind === "audit") {
     assert.equal(auditCommand.scope, "changed");
+    assert.equal(auditCommand.confirmRisk, false);
   }
   if (fullAuditCommand.kind === "audit") {
     assert.equal(fullAuditCommand.scope, "full");
+  }
+  if (confirmRiskAuditCommand.kind === "audit") {
+    assert.equal(confirmRiskAuditCommand.scope, "full");
+    assert.equal(confirmRiskAuditCommand.confirmRisk, true);
   }
   if (evidenceCommand.kind === "evidence:add") {
     assert.equal(evidenceCommand.evidenceKind, "file");
@@ -198,12 +215,20 @@ test("parseCommand handles the new direct aliases", () => {
     assert.equal(issueCreateCommand.parentIssueId, "ISSUE-001-TEST");
     assert.equal(issueCreateCommand.approvalNote, "Accepted risk in review.");
   }
+  if (explainUpgrade.kind === "upgrade") {
+    assert.equal(explainUpgrade.explain, true);
+    assert.equal(explainUpgrade.force, false);
+  }
+  if (forceUpgrade.kind === "upgrade") {
+    assert.equal(forceUpgrade.explain, false);
+    assert.equal(forceUpgrade.force, true);
+  }
 });
 
 test("parseCommand handles upgrade flags and defaults to dry-run", () => {
   const defaultUpgrade = parseCommand(["upgrade"]);
   const dryRunUpgrade = parseCommand(["upgrade", "--dry-run", "--from", "0.1.4", "--to", "0.1.5"]);
-  const applyUpgrade = parseCommand(["upgrade", "--apply", "--from=0.1.4", "--to=0.1.5"]);
+  const applyUpgrade = parseCommand(["upgrade", "--apply", "--from=0.1.4", "--to=0.1.5", "--explain", "--force"]);
 
   assert.equal(defaultUpgrade.kind, "upgrade");
   assert.equal(dryRunUpgrade.kind, "upgrade");
@@ -219,12 +244,16 @@ test("parseCommand handles upgrade flags and defaults to dry-run", () => {
     assert.equal(dryRunUpgrade.mode, "dry-run");
     assert.equal(dryRunUpgrade.fromVersion, "0.1.4");
     assert.equal(dryRunUpgrade.toVersion, "0.1.5");
+    assert.equal(dryRunUpgrade.explain, false);
+    assert.equal(dryRunUpgrade.force, false);
   }
 
   if (applyUpgrade.kind === "upgrade") {
     assert.equal(applyUpgrade.mode, "apply");
     assert.equal(applyUpgrade.fromVersion, "0.1.4");
     assert.equal(applyUpgrade.toVersion, "0.1.5");
+    assert.equal(applyUpgrade.explain, true);
+    assert.equal(applyUpgrade.force, true);
   }
 });
 
@@ -351,7 +380,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.6");
+  assert.equal(manifest.version, "0.2.7");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
   assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");
@@ -453,7 +482,7 @@ test("runCli review:run preserves source files and avoids auto-created follow-up
   });
 });
 
-test("runCli routes broad product requests to planning and decomposition", async () => {
+test("runCli proposes broad product decomposition before creating child issues", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-broad-"));
   await seedProject(rootDir);
 
@@ -466,21 +495,42 @@ test("runCli routes broad product requests to planning and decomposition", async
     assert.match(result.output, /Execution mode: decompose_project/);
     assert.match(result.output, /Safe to proceed: no/);
     assert.match(result.output, /Next action: clarify_and_decompose/);
+    assert.match(result.output, /Proposed decomposition:/);
+    assert.match(result.output, /Child issues were not created yet\. Re-run with --force/);
     assert.match(result.output, /Created issue ISSUE-001-/);
 
     const directories = await issueDirectories(rootDir);
-    assert.ok(directories.length > 1);
+    assert.equal(directories.length, 1);
 
     const parentIssueId = directories[0];
     if (parentIssueId === undefined) {
       throw new Error("Expected a parent issue directory.");
     }
+    assert.match(parentIssueId, /^ISSUE-001-/);
 
     const issueJson = JSON.parse(await readFile(join(rootDir, ".flowness", "issues", parentIssueId, "issue.json"), "utf8")) as {
       readonly issue: { readonly workflowId: string; readonly type: string };
     };
     assert.equal(issueJson.issue.workflowId, "mvp-planning");
     assert.equal(issueJson.issue.type, "planning");
+  });
+});
+
+test("runCli creates child issues when broad decomposition is explicitly approved", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-broad-force-"));
+  await seedProject(rootDir);
+
+  const initResult = await runCli(["init", rootDir, "--name", "broad-force-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli(["run", "전체 쇼핑몰 만들어줘", "--force"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Proposed decomposition:/);
+    assert.match(result.output, /Decomposition approval was granted, so child issues were created\./);
+
+    const directories = await issueDirectories(rootDir);
+    assert.ok(directories.length > 1);
   });
 });
 
@@ -722,6 +772,64 @@ test("runCli test --summary returns a compact JSON summary", async () => {
   });
 });
 
+test("runCli test blocks a dangerous command until explicit risk confirmation is provided", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-dangerous-test-"));
+  await seedProject(rootDir);
+  await writeFile(join(rootDir, "package.json"), JSON.stringify({
+    name: "dangerous-test-project",
+    scripts: {
+      test: "rm -rf ./scratch",
+    },
+  }, null, 2), "utf8");
+  await mkdir(join(rootDir, "scratch"), { recursive: true });
+  await writeFile(join(rootDir, "scratch", "sentinel.txt"), "keep me safe\n", "utf8");
+
+  const initResult = await runCli(["init", rootDir, "--name", "dangerous-test-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const blocked = await runCli(["test", "--summary"]);
+    assert.equal(blocked.exitCode, 1);
+
+    const blockedSummary = JSON.parse(blocked.output) as {
+      readonly requestedSummary: boolean;
+      readonly commandRisk: {
+        readonly action: string;
+        readonly riskLevel: string;
+        readonly requiresExplicitConfirmation: boolean;
+        readonly warning: string;
+        readonly dryRunImpact: readonly string[];
+      };
+    };
+
+    assert.equal(blockedSummary.requestedSummary, true);
+    assert.equal(blockedSummary.commandRisk.action, "blocked");
+    assert.equal(blockedSummary.commandRisk.riskLevel, "critical");
+    assert.equal(blockedSummary.commandRisk.requiresExplicitConfirmation, true);
+    assert.match(blockedSummary.commandRisk.warning, /permanently/i);
+    assert.match(blockedSummary.commandRisk.dryRunImpact.join("\n"), /scratch/);
+    assert.equal(await exists(join(rootDir, "scratch", "sentinel.txt")), true);
+
+    const approved = await runCli(["test", "--summary", "--confirm-risk"]);
+    assert.equal(approved.exitCode, 0);
+
+    const approvedSummary = JSON.parse(approved.output) as {
+      readonly requestedSummary: boolean;
+      readonly confirmationRecorded: boolean;
+      readonly commandRisk: {
+        readonly action: string;
+      };
+      readonly passed: boolean;
+    };
+
+    assert.equal(approvedSummary.requestedSummary, true);
+    assert.equal(approvedSummary.confirmationRecorded, true);
+    assert.equal(approvedSummary.commandRisk.action, "approved");
+    assert.equal(approvedSummary.passed, true);
+    assert.equal(await exists(join(rootDir, "scratch")), false);
+  });
+});
+
 test("runCli audit --changed summarizes changed files and suggested checks", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-audit-"));
   await seedProject(rootDir);
@@ -798,12 +906,17 @@ test("runCli upgrade --dry-run reports a plan without writing files", async () =
     const result = await runCli(["upgrade", "--dry-run"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: legacy/);
-    assert.match(result.output, /Target version: 0\.2\.6/);
+    assert.match(result.output, /Target version: 0\.2\.7/);
+    assert.match(result.output, /Risk level: /);
+    assert.match(result.output, /Migrations:/);
     assert.match(result.output, /Will regenerate:/);
     assert.match(result.output, /Will add if missing:/);
     assert.match(result.output, /Will patch:/);
+    assert.match(result.output, /Files skipped because user-modified:/);
+    assert.match(result.output, /Backups that would be created:/);
     assert.match(result.output, /Will not touch:/);
     assert.match(result.output, /Recommended next commands:/);
+    assert.match(result.output, /flowness upgrade --explain/);
     assert.match(result.output, /flowness upgrade --apply/);
   });
 
@@ -864,12 +977,13 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
   await writeFile(join(rootDir, "AGENTS.md"), customAgents, "utf8");
 
   await withWorkingDirectory(rootDir, async () => {
-    const result = await runCli(["upgrade", "--apply"]);
+    const result = await runCli(["upgrade", "--apply", "--force"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: 0\.1\.4/);
-    assert.match(result.output, /Target version: 0\.2\.6/);
+    assert.match(result.output, /Target version: 0\.2\.7/);
     assert.match(result.output, /Backup path:/);
     assert.match(result.output, /Report path:/);
+    assert.match(result.output, /Migration plan path:/);
     assert.match(result.output, /Updated files:/);
   });
 
@@ -935,9 +1049,9 @@ test("runCli upgrade --apply refuses to overwrite modified generated project pro
 
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["upgrade", "--apply"]);
-    assert.equal(result.exitCode, 0);
-    assert.match(result.output, /Conflicts:/);
-    assert.match(result.output, /\.flowness\/project-profile\.md/);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /Upgrade plan contains conflicts/);
+    assert.match(result.output, /--force/);
   });
 
   assert.equal(await readFile(projectProfilePath, "utf8"), modifiedProjectProfile);
@@ -1186,8 +1300,8 @@ test("runCli upgrade commands use dynamic versioning and respect overrides", asy
     // default target follows package version
     const defaultUpgrade = await runCli(["upgrade", "--dry-run"]);
     assert.equal(defaultUpgrade.exitCode, 0);
-    // targetVersion should match current package version which is "0.2.6"
-    assert.match(defaultUpgrade.output, /Target version: 0\.2\.6/);
+    // targetVersion should match current package version which is "0.2.7"
+    assert.match(defaultUpgrade.output, /Target version: 0\.2\.7/);
 
     // upgrade --to respects explicit target version
     const explicitUpgrade = await runCli(["upgrade", "--dry-run", "--to", "0.2.1"]);
@@ -1195,8 +1309,8 @@ test("runCli upgrade commands use dynamic versioning and respect overrides", asy
     assert.match(explicitUpgrade.output, /Target version: 0\.2\.1/);
     assert.match(explicitUpgrade.output, /Requested range: auto -> 0\.2\.1/);
 
-    // add-if-missing entries are unique (no duplicates in the output lines)
-    const addIfMissingLines = defaultUpgrade.output
+    const addIfMissingSection = defaultUpgrade.output.split("Will add if missing:")[1]?.split("Will patch:")[0] ?? "";
+    const addIfMissingLines = addIfMissingSection
       .split("\n")
       .filter((line) => line.startsWith("- .flowness/"));
     const uniqueLines = new Set(addIfMissingLines);

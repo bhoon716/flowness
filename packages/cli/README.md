@@ -18,6 +18,7 @@ This is the npm README for the Flowness CLI package. The main repository overvie
 | Primary docs | Root README, Korean README, Chinese README, release checklist, release notes |
 
 Flowness is a conversational workflow harness for traceable AI-agent development. It turns requests into tracked issues, routes them through explicit workflows, preserves evidence and logs in an append-only format, and keeps structured review checks and rule changes traceable.
+Broad requests can be decomposed into parent and child issues when that is safer or clearer, and dangerous commands should be checked with a dry-run impact report before they run.
 
 ## Start Here
 
@@ -47,6 +48,7 @@ Examples:
 - `flowness audit --changed`
 - `flowness review:run --issue ISSUE-ID`
 - `flowness upgrade --dry-run`
+- `flowness upgrade --explain`
 - `flowness upgrade --apply`
 
 ## Common Commands
@@ -62,7 +64,10 @@ Examples:
 - `flowness locate`
 - `flowness test --summary`
 - `flowness audit --changed`
+- `flowness test --summary --confirm-risk`
+- `flowness audit --full --confirm-risk`
 - `flowness upgrade --dry-run`
+- `flowness upgrade --explain`
 - `flowness upgrade --apply`
 - `flowness validate`
 
@@ -81,8 +86,8 @@ flowness workflow:validate [workflow-id]
 flowness step --issue <issue-id> [--approve]
 flowness status --issue <issue-id>
 flowness locate <task description>
-flowness test [--summary]
-flowness audit [--changed|--full]
+flowness test [--summary] [--confirm-risk]
+flowness audit [--changed|--full] [--confirm-risk]
 flowness evidence:add --issue <issue-id> --kind <kind> --title <title> [--detail <text>] [--location <path>]
 flowness workflow:step --issue <issue-id> [--approve]
 flowness workflow:recover --issue <issue-id> --root-cause <text>
@@ -96,12 +101,12 @@ flowness rule:update --id <rule-id> [--issue <issue-id>] --input <text>
 flowness rule:list
 flowness config:gate [--set <instruction>]
 flowness validate
-flowness upgrade [--dry-run|--apply] [--from <version>] [--to <version>]
+flowness upgrade [--dry-run|--apply] [--from <version>] [--to <version>] [--explain] [--force]
 ```
 
 ## Upgrade Path
 
-Use `flowness upgrade --dry-run` first, then apply the approved plan with `flowness upgrade --apply`.
+Use `flowness upgrade --dry-run` first, then apply the approved plan with `flowness upgrade --apply`. If the plan still has conflicts after review, add `--force` only after you explicitly approve the remaining manual work.
 Do not rerun `flowness init` on an existing project.
 
 ## Release Docs

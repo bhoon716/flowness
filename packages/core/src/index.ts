@@ -58,6 +58,13 @@ export type {
   TestRunSummary,
 } from "./output-summary.js";
 export {
+  analyzeCommandRisk,
+} from "./command-risk.js";
+export type {
+  CommandRiskAnalysis,
+  CommandRiskLevel,
+} from "./command-risk.js";
+export {
   analyzeRequest,
   classifyRequest,
   createIssueSlugFromRequest,

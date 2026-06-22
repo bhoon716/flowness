@@ -55,7 +55,18 @@ function ensureOutputIncludes(output, expected, label) {
   }
 }
 
+function readRepoVersion() {
+  const manifest = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+  if (typeof manifest.version !== "string" || manifest.version.trim().length === 0) {
+    throw new Error("package.json version is missing.");
+  }
+
+  return manifest.version;
+}
+
 async function main() {
+  const repoVersion = readRepoVersion();
+
   runCommand("build", npmCommand, ["run", "build"]);
   runCommand("test", npmCommand, ["test"]);
 
@@ -140,7 +151,7 @@ async function main() {
     }
 
     const manifestJson = JSON.parse(readFileSync(join(sandboxRoot, ".flowness/harness-manifest.json"), "utf8"));
-    if (manifestJson.version !== "0.2.6") {
+    if (manifestJson.version !== repoVersion) {
       throw new Error("harness manifest version is incorrect.");
     }
     if (manifestJson.contextFiles.findings !== ".flowness/findings/README.md") {
