@@ -2,7 +2,7 @@ Flowness v2.5 Master Plan
 
 Subtitle
 
-Issue Driven AI Development Operating System
+Conversational Workflow Harness for Traceable AI-Agent Development
 
 ⸻
 
@@ -832,4 +832,4 @@ Review
 
 Recovery
 
-를 중심으로 AI가 조직의 개발 프로세스를 강제적으로 수행하도록 만드는 Issue Driven AI Development Operating System이다.
+를 중심으로 AI가 조직의 개발 프로세스를 강제적으로 수행하도록 만드는 conversational workflow harness for traceable AI-agent development이다.

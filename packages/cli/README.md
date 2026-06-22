@@ -1,8 +1,12 @@
 # @flowness-labs/cli
 
-This is the npm README for the Flowness CLI package. The main repository overview lives in the root [README](https://github.com/bhoon716/flowness/blob/main/README.md), and the Chinese guide is in [README.zh-CN.md](https://github.com/bhoon716/flowness/blob/main/README.zh-CN.md).
+<p align="center">
+  <a href="https://github.com/bhoon716/flowness/blob/main/README.md">English</a> | <a href="https://github.com/bhoon716/flowness/blob/main/README.ko.md">한국어</a> | <a href="https://github.com/bhoon716/flowness/blob/main/README.zh-CN.md">简体中文</a>
+</p>
 
-> In normal use, run `flowness init` once, then work through the coding agent in natural language. Commands stay available mostly as escape hatches for agents, debugging, recovery, CI, or inspection.
+This is the npm README for the Flowness CLI package. The main repository overview lives in the root [README](https://github.com/bhoon716/flowness/blob/main/README.md), and the Korean and Chinese guides are in [README.ko.md](https://github.com/bhoon716/flowness/blob/main/README.ko.md) and [README.zh-CN.md](https://github.com/bhoon716/flowness/blob/main/README.zh-CN.md).
+
+> In normal use, run `flowness init` once, work through the coding agent in natural language, and keep the command surface for agent-facing controls, debugging/recovery tools, CI helpers, and advanced inspection tools.
 
 ## Package at a Glance
 
@@ -11,9 +15,9 @@ This is the npm README for the Flowness CLI package. The main repository overvie
 | Install | `npm install -g @flowness-labs/cli` |
 | Bootstrap | `npx @flowness-labs/cli init ./my-project` |
 | Best for | Initializing and operating Flowness workspaces |
-| Primary docs | Root README, Chinese README, release checklist, release notes |
+| Primary docs | Root README, Korean README, Chinese README, release checklist, release notes |
 
-Flowness turns requests into tracked issues, routes them through explicit workflows, and keeps evidence in append-only logs. After init, the default path is conversational: talk to the coding agent naturally, then reach for commands only when you need setup, recovery, CI, or inspection.
+Flowness is a conversational workflow harness for traceable AI-agent development. It turns requests into tracked issues, routes them through explicit workflows, preserves evidence and logs in an append-only format, and keeps structured review checks and rule changes traceable.
 
 ## Start Here
 
@@ -33,7 +37,7 @@ Examples:
 - Issue: the tracked unit of work created from a request.
 - Workflow: the ordered set of steps that shapes the work.
 - Evidence: files, commands, and outputs that support a decision.
-- Review: the multi-perspective check for hard and deferrable blockers.
+- Review: structured review checks for hard and deferrable blockers.
 - Rules: durable project conventions that stay explicit and reviewable.
 
 ## Escape Hatches
@@ -105,6 +109,7 @@ Do not rerun `flowness init` on an existing project.
 - Changelog: [`CHANGELOG.md`](https://github.com/bhoon716/flowness/blob/main/CHANGELOG.md)
 - Release checklist: [`docs/release-checklist.md`](https://github.com/bhoon716/flowness/blob/main/docs/release-checklist.md)
 - Release notes template: [`docs/templates/release-notes.md`](https://github.com/bhoon716/flowness/blob/main/docs/templates/release-notes.md)
+- Korean README: [`README.ko.md`](https://github.com/bhoon716/flowness/blob/main/README.ko.md)
 - Chinese README: [`README.zh-CN.md`](https://github.com/bhoon716/flowness/blob/main/README.zh-CN.md)
 - Performance troubleshooting: [`docs/troubleshooting/performance-improvements.md`](https://github.com/bhoon716/flowness/blob/main/docs/troubleshooting/performance-improvements.md)
 - Evidence summary contract: [`docs/troubleshooting/evidence-summary.md`](https://github.com/bhoon716/flowness/blob/main/docs/troubleshooting/evidence-summary.md)

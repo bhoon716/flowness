@@ -113,6 +113,7 @@ function ensureSameLines(actualLines, expectedLines, label) {
 
 function main() {
   const rootReadme = readText(join(repoRoot, "README.md"));
+  const koreanReadme = readText(join(repoRoot, "README.ko.md"));
   const cliReadme = readText(join(repoRoot, "packages", "cli", "README.md"));
   const coreReadme = readText(join(repoRoot, "packages", "core", "README.md"));
   const chineseReadme = readText(join(repoRoot, "README.zh-CN.md"));
@@ -155,6 +156,7 @@ function main() {
   ensureAllIncludes(releaseChecklist, [
     "GitHub README: `README.md`",
     "npm README for the CLI package / command reference: `packages/cli/README.md`",
+    "Korean README: `README.ko.md`",
     "Changelog: `CHANGELOG.md`",
     "package.json metadata updated",
     "Release notes template: `docs/templates/release-notes.md`",
@@ -186,6 +188,8 @@ function main() {
     "Initialize Once",
     "Escape Hatches",
     "Docs",
+    "README.ko.md",
+    "conversational workflow harness",
     "flowness locate",
     "flowness test --summary",
     "flowness audit --changed",
@@ -210,6 +214,8 @@ function main() {
     "Command Reference",
     "Upgrade Path",
     "Release Docs",
+    "README.ko.md",
+    "conversational workflow harness",
     "In normal use, run `flowness init` once",
     "work through the coding agent in natural language",
     "flowness init",
@@ -245,8 +251,16 @@ function main() {
     "Homepage",
   ], "packages/core/README.md");
 
+  ensureAllIncludes(koreanReadme, [
+    "README.zh-CN.md",
+    "conversational workflow harness",
+    "flowness init",
+  ], "README.ko.md");
+
   ensureAllIncludes(chineseReadme, [
     "Flowness 是什么",
+    "README.ko.md",
+    "conversational workflow harness",
     "安装与初始化",
     "对话式工作模型",
     "Review、Issue、证据与规则",

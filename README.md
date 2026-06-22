@@ -7,10 +7,10 @@
 </div>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
+  <a href="README.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> In day-to-day use, you normally run only `flowness init`. After that, work happens through natural conversation with the coding agent; commands stay available as escape hatches for agents, debugging, recovery, CI, and inspection.
+> In day-to-day use, you normally run `flowness init` once. After that, work continues through natural conversation with your coding agent; commands remain available as agent-facing controls, debugging/recovery tools, CI helpers, and advanced inspection tools.
 
 ## At a glance
 
@@ -19,11 +19,12 @@
 | GitHub README | this file | Repository overview |
 | npm CLI package | [@flowness-labs/cli](https://www.npmjs.com/package/@flowness-labs/cli) | Install, init, and manual escape hatches |
 | npm core package | [@flowness-labs/core](https://www.npmjs.com/package/@flowness-labs/core) | Harness primitives and workspace scaffolding |
+| Korean README | [README.ko.md](README.ko.md) | Korean guide |
 | Chinese README | [README.zh-CN.md](README.zh-CN.md) | Simplified Chinese guide |
 
 ## What Flowness Is
 
-Flowness is a conversational agent harness for software work. It turns requests into issues, routes them through explicit workflows, preserves evidence and logs in an append-only format, and keeps review and rule changes traceable.
+Flowness is a conversational workflow harness for traceable AI-agent development. It turns requests into issues, routes them through explicit workflows, preserves evidence and logs in an append-only format, and keeps structured review checks and rule changes traceable.
 
 ## The Normal Flow
 
@@ -43,13 +44,14 @@ Examples:
 - Issue: the tracked unit of work that Flowness creates from a request.
 - Workflow: the ordered set of steps that shapes the work.
 - Evidence: concrete files, commands, and outputs that support a decision.
-- Review: the multi-perspective check that looks for hard and deferrable blockers.
+- Review: structured review checks that look for hard and deferrable blockers.
 - Rules: durable project conventions that should be explicit and reviewable.
 
 ## Install
 
 ```bash
 npm install -g @flowness-labs/cli
+npx @flowness-labs/cli init ./my-project
 ```
 
 ## Initialize Once
@@ -74,6 +76,7 @@ After init, talk to the coding agent naturally. Keep the agent on task with ordi
 
 - CLI package README: [`packages/cli/README.md`](packages/cli/README.md)
 - Core package README: [`packages/core/README.md`](packages/core/README.md)
+- Korean README: [`README.ko.md`](README.ko.md)
 - Chinese README: [`README.zh-CN.md`](README.zh-CN.md)
 - Performance troubleshooting: [`docs/troubleshooting/performance-improvements.md`](docs/troubleshooting/performance-improvements.md)
 - Evidence summary contract: [`docs/troubleshooting/evidence-summary.md`](docs/troubleshooting/evidence-summary.md)

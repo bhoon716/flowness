@@ -30,6 +30,7 @@ function runNodeScript(scriptPath: string, args: readonly string[] = []): { read
 test("release docs and changelog files are present and aligned", async () => {
   const [
     rootReadme,
+    koreanReadme,
     cliReadme,
     coreReadme,
     chineseReadme,
@@ -49,6 +50,7 @@ test("release docs and changelog files are present and aligned", async () => {
     workflowEnginePackageJson,
   ] = await Promise.all([
     readRepoFile("README.md"),
+    readRepoFile("README.ko.md"),
     readRepoFile("packages/cli/README.md"),
     readRepoFile("packages/core/README.md"),
     readRepoFile("README.zh-CN.md"),
@@ -109,6 +111,8 @@ test("release docs and changelog files are present and aligned", async () => {
   assert.match(rootReadme, /Initialize Once/);
   assert.match(rootReadme, /Escape Hatches/);
   assert.match(rootReadme, /Docs/);
+  assert.match(rootReadme, /README\.ko\.md/);
+  assert.match(rootReadme, /conversational workflow harness/i);
   assert.match(rootReadme, /flowness locate/);
   assert.match(rootReadme, /flowness review:run/);
   assert.match(rootReadme, /Add login validation\./);
@@ -133,6 +137,8 @@ test("release docs and changelog files are present and aligned", async () => {
   assert.match(cliReadme, /## Command Reference/);
   assert.match(cliReadme, /Upgrade Path/);
   assert.match(cliReadme, /Release Docs/);
+  assert.match(cliReadme, /README\.ko\.md/);
+  assert.match(cliReadme, /conversational workflow harness/i);
   assert.match(cliReadme, /flowness locate/);
   assert.match(cliReadme, /flowness test --summary/);
   assert.match(cliReadme, /flowness audit --changed/);
@@ -156,7 +162,13 @@ test("release docs and changelog files are present and aligned", async () => {
   assert.match(coreReadme, /Issues/);
   assert.match(coreReadme, /Homepage/);
 
+  assert.match(koreanReadme, /README\.zh-CN\.md/);
+  assert.match(koreanReadme, /conversational workflow harness/i);
+  assert.match(koreanReadme, /flowness init/);
+
   assert.match(chineseReadme, /Flowness 是什么/);
+  assert.match(chineseReadme, /README\.ko\.md/);
+  assert.match(chineseReadme, /conversational workflow harness/i);
   assert.match(chineseReadme, /安装与初始化/);
   assert.match(chineseReadme, /对话式工作模型/);
   assert.match(chineseReadme, /Review、Issue、证据与规则/);
@@ -169,6 +181,7 @@ test("release docs and changelog files are present and aligned", async () => {
 
   assert.match(checklist, /GitHub README: `README\.md`/);
   assert.match(checklist, /npm README for the CLI package \/ command reference: `packages\/cli\/README\.md`/);
+  assert.match(checklist, /Korean README: `README\.ko\.md`/);
   assert.match(checklist, /Chinese README: `README\.zh-CN\.md`/);
   assert.match(checklist, /Core package README: `packages\/core\/README\.md`/);
   assert.match(checklist, /Package metadata links verified/);

@@ -13,7 +13,7 @@ Use this template for a single release. Keep it human-readable and avoid pasting
 ## Changed
 
 - Behavior updates, defaults, or documentation changes, including workflow reordering after `flowness init`, rule approval prompts, and rule history/log changes.
-- Documentation changes that reshape the default user model, including conversational-first README updates, translated guides, and the performance troubleshooting / evidence summary docs.
+- Documentation changes that reshape the default user model, including conversational-first README updates, translated guides (English/Korean/Chinese), and the performance troubleshooting / evidence summary docs.
 - Follow-up concern handling that links approved split work to a parent issue so deferrable concerns can be tracked without blocking closure.
 
 ## Fixed

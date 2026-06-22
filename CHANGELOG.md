@@ -28,13 +28,15 @@ All notable changes to Flowness are recorded here.
 ## [0.2.5] - 2026-06-21
 
 ### Added
+- `README.ko.md` for a Korean overview of Flowness.
 - `README.zh-CN.md` for a Simplified Chinese overview of Flowness.
 - Release docs and templates that spell out the conversational-first usage model, review finding lifecycle, deferrable blocker handling, and the performance troubleshooting / evidence summary contract.
 - `docs/troubleshooting/evidence-summary.md` for compact performance evidence review guidance.
 - `flowness issue:create --parent-issue` and `--approval-note` for linking follow-up issues with recorded approval text.
 
 ### Changed
-- The GitHub and npm READMEs now present Flowness as a conversational agent harness instead of a command-heavy CLI.
+- The GitHub and npm READMEs now present Flowness as a conversational workflow harness instead of a command-heavy CLI.
+- `README.md`, `README.ko.md`, `README.zh-CN.md`, and `packages/cli/README.md` now share the same conversational-first positioning and language links.
 - `packages/cli/README.md` and `packages/core/README.md` now point to the correct GitHub repository, homepage, and issue tracker links.
 - Review reporting now separates hard blockers from deferrable blockers and records finding lifecycle statuses.
 - Performance-sensitive work now expects a compact evidence summary alongside raw artifacts so large reports do not fail review by volume alone.

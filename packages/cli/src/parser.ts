@@ -1,10 +1,6 @@
-export { runCli } from "./handlers.js";
-export { parseCommand } from "./parser.js";
-export { getPackageVersion } from "./services.js";
-export { usage } from "./formatters.js";
+export { parseCommand } from "./handlers.js";
 
 export type {
-  CliResult,
   ParsedAuditCommand,
   ParsedCommand,
   ParsedConfigGateCommand,

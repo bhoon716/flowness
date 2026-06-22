@@ -6,6 +6,7 @@ Use this checklist for every Flowness version bump. Keep it compact, human-reada
 
 - GitHub README: `README.md`
 - npm README for the CLI package / command reference: `packages/cli/README.md`
+- Korean README: `README.ko.md`
 - Chinese README: `README.zh-CN.md`
 - Core package README: `packages/core/README.md`
 - Changelog: `CHANGELOG.md`
@@ -40,7 +41,7 @@ If the GitHub README and npm README ever become the same file, record that here 
 - Keep the post-init workflow description aligned with the "initialize once, then talk to the coding agent" flow.
 - Keep `flowness locate`, `flowness test --summary`, `flowness audit --changed`, and `flowness upgrade` documented.
 - Keep the conversational usage examples in the README files above the command reference sections.
-- Keep the Chinese README linked from both the GitHub README and the npm README.
+- Keep the Korean and Chinese README files linked from both the GitHub README and the npm README.
 - Keep `rule-update-log.md`, `docs/troubleshooting/performance-improvements.md`, and `docs/troubleshooting/evidence-summary.md` in the release notes if they are user-visible changes.
 - Keep the review finding lifecycle, hard/deferrable blocker split, and performance evidence summary contract documented when those rules change.
 - Keep the generated command reference in `packages/cli/README.md` in sync with the command surface that ships in the package.

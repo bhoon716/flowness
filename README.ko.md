@@ -7,10 +7,10 @@
 </div>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ko.md">한국어</a>
+  <a href="README.md">English</a> | <a href="README.ko.md">한국어</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> 요청, 워크플로우, 증거 및 탐색을 일관되게 정렬하는 이슈 기반 AI 개발.
+> 보통은 `flowness init`을 한 번만 실행합니다. 그다음부터는 코딩 에이전트와 자연스럽게 대화하면서 작업을 이어가며, 명령은 에이전트용 제어, 디버깅/복구 도구, CI 보조 도구, 고급 점검 도구로 남겨둡니다.
 
 ## 한눈에 보기
 
@@ -23,12 +23,13 @@
 
 ## Flowness란?
 
-Flowness는 요청을 이슈로 라우팅하고, 명시적인 워크플로우를 통해 실행하며, 증거와 로그를 append-only(추가 전용) 형식으로 보존하는 개발 운영체제입니다. 단순히 코드를 빠르게 수정하는 것보다 개발 기록을 재현 가능하게 유지하는 것에 초점을 맞춥니다.
+Flowness는 추적 가능한 AI 에이전트 개발을 위한 대화형 워크플로우 하네스(conversational workflow harness)입니다. 요청을 이슈로 라우팅하고, 명시적인 워크플로우를 통해 실행하며, 증거와 로그를 append-only(추가 전용) 형식으로 보존하고, 구조화된 review 체크와 rule 변경을 추적 가능하게 유지합니다.
 
 ## CLI 설치
 
 ```bash
 npm install -g @flowness-labs/cli
+npx @flowness-labs/cli init ./my-project
 ```
 
 또는 `npx`로 새로운 워크스페이스를 시작하세요:
@@ -57,7 +58,7 @@ flowness status --issue ISSUE-001-AUTH
 - 명시적인 워크플로우를 통해 요청을 이슈로 라우팅합니다.
 - `flowness locate`를 사용하여 탐색 범위를 제한합니다.
 - `flowness test --summary`, `flowness audit --changed`, `flowness upgrade --dry-run`, `flowness upgrade --apply`를 제공합니다.
-- `flowness review:run`을 통해 코드 리뷰 흐름을 분리합니다.
+- `flowness review:run`을 통해 구조화된 review 체크를 실행합니다.
 - `flowness step`, `flowness workflow:step`, `flowness status`를 통해 진행 상황을 명시적으로 관리합니다.
 - 증거, 로그, 리뷰 결과를 append-only(추가 전용) 형식으로 보존합니다.
 

@@ -207,7 +207,7 @@ function buildPurpose(areaName: string, candidateFileName: string, symbols: read
   }
 
   if (/\b(review|findings|report)\b/.test(joined)) {
-    return "Capture review output, separate hard blockers from deferrable blockers, and keep findings concise.";
+    return "Capture structured review checks, separate hard blockers from deferrable blockers, and keep findings concise.";
   }
 
   if (/\b(decision|rationale|choice)\b/.test(joined)) {

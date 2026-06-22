@@ -78,6 +78,64 @@ async function issueDirectories(rootDir: string): Promise<readonly string[]> {
   return (await readdir(join(rootDir, ".flowness", "issues"))).filter((name) => name.startsWith("ISSUE-"));
 }
 
+async function readWorkflowState(rootDir: string, issueId: string): Promise<{
+  readonly currentStep: string;
+  readonly completedSteps: readonly string[];
+  readonly failedSteps: readonly string[];
+  readonly blocked: boolean;
+}> {
+  return JSON.parse(await readFile(join(rootDir, ".flowness", "issues", issueId, "workflow-state.json"), "utf8")) as {
+    readonly currentStep: string;
+    readonly completedSteps: readonly string[];
+    readonly failedSteps: readonly string[];
+    readonly blocked: boolean;
+  };
+}
+
+async function advanceIssueToStep(rootDir: string, issueId: string, targetStep: string): Promise<void> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const state = await readWorkflowState(rootDir, issueId);
+    if (state.currentStep === targetStep) {
+      return;
+    }
+
+    const result = await runCli(["step", "--issue", issueId, "--approve"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Status: completed/);
+  }
+
+  const finalState = await readWorkflowState(rootDir, issueId);
+  throw new Error(`Failed to advance ${issueId} to ${targetStep}. Current step: ${finalState.currentStep}`);
+}
+
+async function prepareCommitSmokeProject(rootDir: string): Promise<void> {
+  await seedProject(rootDir);
+  await mkdir(join(rootDir, "scripts"), { recursive: true });
+  await writeFile(join(rootDir, "src", "index.ts"), [
+    "export function greet(name: string): string {",
+    "  return `Hello, ${name}!`;",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(join(rootDir, "scripts", "pass-test.mjs"), [
+    "console.log(\"ok\");",
+    "process.exit(0);",
+    "",
+  ].join("\n"), "utf8");
+
+  const packageJsonPath = join(rootDir, "package.json");
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+    readonly scripts?: Record<string, string>;
+  };
+  await writeFile(packageJsonPath, JSON.stringify({
+    ...packageJson,
+    scripts: {
+      ...(packageJson.scripts ?? {}),
+      test: "node scripts/pass-test.mjs",
+    },
+  }, null, 2), "utf8");
+}
+
 async function upgradeBackupDirectories(rootDir: string): Promise<readonly string[]> {
   const backupsRoot = join(rootDir, ".flowness", "backups");
   if (!(await exists(backupsRoot))) {
@@ -980,6 +1038,101 @@ test("runCli status, evidence, and step commands block manual state mismatches",
     const mismatchStatus = await runCli(["status", "--issue", issueName]);
     assert.equal(mismatchStatus.exitCode, 1);
     assert.match(mismatchStatus.output, /State\/log mismatch detected/);
+  });
+});
+
+test("runCli smoke test blocks commit until review evidence and review report are present", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-commit-gate-"));
+  await prepareCommitSmokeProject(rootDir);
+
+  const initResult = await runCli(["init", rootDir, "--name", "commit-gate-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const requestResult = await runCli(["run", "로그인 기능을 만들어줘"]);
+    assert.equal(requestResult.exitCode, 0);
+    assert.match(requestResult.output, /Created issue ISSUE-001-/);
+
+    const [issueId] = await issueDirectories(rootDir);
+    if (issueId === undefined) {
+      throw new Error("Expected an issue directory to be created.");
+    }
+
+    await advanceIssueToStep(rootDir, issueId, "Commit");
+
+    const blockedCommit = await runCli(["step", "--issue", issueId, "--approve"]);
+    assert.equal(blockedCommit.exitCode, 1);
+    assert.match(blockedCommit.output, /Completed step: Commit/);
+    assert.match(blockedCommit.output, /Gate\/review: blocked/);
+    assert.match(blockedCommit.output, /Blocking reason: No Evidence Review report was found\./);
+
+    await runCli(["evidence:add", "--issue", issueId, "--kind", "file", "--title", "Source change", "--location", "src/index.ts"]);
+    await runCli(["evidence:add", "--issue", issueId, "--kind", "file", "--title", "Package script", "--location", "package.json"]);
+    await runCli(["evidence:add", "--issue", issueId, "--kind", "file", "--title", "Test script", "--location", "scripts/pass-test.mjs"]);
+
+    const testSummaryResult = await runCli(["test", "--summary"]);
+    assert.equal(testSummaryResult.exitCode, 0);
+    const testSummary = JSON.parse(testSummaryResult.output) as {
+      readonly command: string;
+      readonly passed: boolean;
+      readonly summary: string;
+    };
+    assert.equal(testSummary.passed, true);
+    assert.equal(testSummary.command, "npm test");
+
+    await runCli([
+      "evidence:add",
+      "--issue",
+      issueId,
+      "--kind",
+      "test",
+      "--title",
+      testSummary.command,
+      "--detail",
+      testSummary.summary,
+    ]);
+    await runCli([
+      "evidence:add",
+      "--issue",
+      issueId,
+      "--kind",
+      "command_output",
+      "--title",
+      "Commit gate block",
+      "--detail",
+      "No Evidence Review report was found.",
+    ]);
+    await runCli([
+      "evidence:add",
+      "--issue",
+      issueId,
+      "--kind",
+      "documentation",
+      "--title",
+      "Smoke summary",
+      "--detail",
+      [
+        "Scenario: commit-gate smoke test for the commit workflow.",
+        "Baseline: commit was blocked before any review report existed.",
+        "After: commit succeeded after adding evidence and a passing review report.",
+        "Workload: 6 workflow steps plus review evidence on a temporary project.",
+        "Key metric: commit gate exit code changed from 1 to 0.",
+        `Raw report path: .flowness/issues/${issueId}/reviews/REVIEW-001-${issueId.toUpperCase()}.md`,
+        "Limitations: the project uses a synthetic test script to keep the smoke test self-contained.",
+      ].join(" "),
+    ]);
+
+    const reviewResult = await runCli(["review:run", "--issue", issueId]);
+    assert.equal(reviewResult.exitCode, 0);
+    assert.match(reviewResult.output, /Passed: yes/);
+    assert.match(reviewResult.output, /Blocking roles: none/);
+
+    const commitResult = await runCli(["step", "--issue", issueId, "--approve"]);
+    assert.equal(commitResult.exitCode, 0);
+    assert.match(commitResult.output, /Completed step: Commit/);
+    assert.match(commitResult.output, /Status: completed/);
+    assert.match(commitResult.output, /Gate\/review: passed/);
+    assert.match(commitResult.output, /Next step: Close/);
   });
 });
 
