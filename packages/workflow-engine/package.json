@@ -1,6 +1,6 @@
 {
   "name": "@flowness-labs/workflow-engine",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,7 +14,7 @@
     "dist"
   ],
   "dependencies": {
-    "@flowness-labs/core": "^0.2.7",
+    "@flowness-labs/core": "^0.2.8",
     "typescript": "^5.8.3"
   },
   "scripts": {

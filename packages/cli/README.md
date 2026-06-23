@@ -18,7 +18,7 @@ This is the npm README for the Flowness CLI package. The main repository overvie
 | Primary docs | Root README, Korean README, Chinese README, release checklist, release notes |
 
 Flowness is a conversational workflow harness for traceable AI-agent development. It turns requests into tracked issues, routes them through explicit workflows, preserves evidence and logs in an append-only format, and keeps structured review checks and rule changes traceable.
-Broad requests can be decomposed into parent and child issues when that is safer or clearer, and dangerous commands should be checked with a dry-run impact report before they run.
+Broad requests can be decomposed into parent and child issues when that is safer or clearer, and dangerous commands should be checked with a dry-run impact report before they run. User-facing progress updates and final reports should follow the user's language when practical; internal IDs, filenames, commands, and technical symbols may stay in English.
 
 ## Start Here
 
@@ -44,6 +44,7 @@ Examples:
 ## Escape Hatches
 
 - `flowness locate "<task description>"`
+- `flowness issue:create --dry-run`
 - `flowness test --summary`
 - `flowness audit --changed`
 - `flowness review:run --issue ISSUE-ID`

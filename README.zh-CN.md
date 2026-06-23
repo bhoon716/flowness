@@ -22,7 +22,7 @@
 
 ## Flowness 是什么
 
-Flowness 是一个面向可追踪 AI 代理开发的对话式工作流 harness (conversational workflow harness)。它把自然语言请求转换成受跟踪的问题单（Issue），通过显式工作流推进工作，保留 append-only 的证据与日志，并让结构化 review 检查和规则变更保持可追踪。更大的请求可以在更安全或更清晰时拆成 1..N 个 Issue，危险命令则应先给出 dry-run 影响报告并获得明确批准。
+Flowness 是一个面向可追踪 AI 代理开发的对话式工作流 harness (conversational workflow harness)。它把自然语言请求转换成受跟踪的问题单（Issue），通过显式工作流推进工作，保留 append-only 的证据与日志，并让结构化 review 检查和规则变更保持可追踪。更大的请求可以在更安全或更清晰时拆成 1..N 个 Issue，危险命令则应先给出 dry-run 影响报告并获得明确批准。面向用户的进度更新和最终报告应尽量沿用用户的语言；内部 ID、文件名、命令和技术符号可以继续使用英文。
 
 它的重点不是把日常工作变成一串命令，而是让你用自然语言持续推进任务，同时保留必要的结构、证据和审计线索。
 
@@ -38,6 +38,8 @@ Flowness 是一个面向可追踪 AI 代理开发的对话式工作流 harness (
 - “Review the current diff.”
 - “Refactor UserService safely.”
 - “From now on, require tests for performance improvements.”
+
+如果你需要先看 Issue 编号和 slug，可先运行 `flowness issue:create --dry-run`。
 
 ## 核心概念
 

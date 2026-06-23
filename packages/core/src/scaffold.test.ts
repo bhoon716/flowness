@@ -80,6 +80,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
 
   const agents = await readFile(join(rootDir, "AGENTS.md"), "utf8");
   assert.match(agents, /Keep this file short\. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, (?:inspection, )?or manual escape hatches\./);
+  assert.match(agents, /Respond to the user in the user's language unless the user asks otherwise\./);
   assert.match(agents, /flowness locate "<task description>"/);
   assert.match(agents, /flowness review:run/);
   assert.match(agents, /flowness test --summary/);
@@ -228,7 +229,7 @@ test("initializeProject creates the Flowness project skeleton", async () => {
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.7");
+  assert.equal(manifest.version, "0.2.8");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.contextFiles.activeIssue, ".flowness/state/active-issue.md");
   assert.equal(manifest.contextFiles.navigation, ".flowness/navigation.md");

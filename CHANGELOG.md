@@ -25,6 +25,38 @@ All notable changes to Flowness are recorded here.
 ### Security
 - None.
 
+## [0.2.8] - 2026-06-23
+
+### Added
+- Issue creation dry-run output that previews proposed issue IDs, folder names, titles, slugs, workflows, types, parent links, files, and collision status before any files are written.
+- Collision-resistant issue allocation that derives slugs from the actual issue title, skips occupied issue numbers, and reuses an unchanged workspace when practical.
+- A lightweight language policy in generated AGENTS guidance so user-facing progress updates and final reports follow the user's language when practical.
+- Release notes that capture the English drift analysis for long-running sessions and the safer issue allocation flow.
+
+### Changed
+- Generated harness guidance now tells agents to respond in the user's language unless the user asks otherwise, while leaving internal IDs and technical symbols in English.
+- Issue creation now treats title-based slugs and request-intent slugs as separate concerns so request analysis does not leak into persisted issue identifiers.
+- README and package docs now mention the preview flow and the language policy.
+- Version references across the monorepo now point to 0.2.8.
+
+### Fixed
+- Issue IDs no longer depend on unrelated request-intent labels such as `LOGIN-PLAN` when a concrete issue title is available.
+- Existing issue workspaces can be reused without rewriting files when the requested issue metadata already matches.
+
+### Migration Notes
+- Existing workspaces can keep using the current `@flowness-labs/*` package names.
+- Use `flowness issue:create --dry-run` or `flowness request:create --dry-run` to preview the proposed issue identifiers before applying broader work.
+- User-facing progress updates should follow the user's language when practical; internal IDs, filenames, and commands can remain English.
+
+### Deprecated
+- None.
+
+### Removed
+- None.
+
+### Security
+- None.
+
 ## [0.2.7] - 2026-06-23
 
 ### Added

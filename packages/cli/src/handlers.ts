@@ -49,9 +49,8 @@ import {
   issueTypeValues,
 } from "@flowness-labs/core";
 import {
+  allocateIssueIdentity,
   createIssueWorkspace,
-  createIssueId,
-  findNextIssueSequence,
   readIssueWorkspace,
   writeIssueWorkspaceState,
 } from "@flowness-labs/issue-system";
@@ -95,7 +94,7 @@ export function getPackageVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     return pkg.version;
   } catch {
-    return "0.2.7";
+    return "0.2.8";
   }
 }
 
@@ -119,6 +118,7 @@ export interface ParsedIssueCreateCommand {
   readonly workflowId?: string;
   readonly parentIssueId?: string;
   readonly approvalNote?: string;
+  readonly dryRun: boolean;
   readonly force: boolean;
 }
 
@@ -127,6 +127,7 @@ export interface ParsedRequestCreateCommand {
   readonly request: string;
   readonly type?: (typeof issueTypeValues)[number];
   readonly workflowId?: string;
+  readonly dryRun: boolean;
   readonly force: boolean;
 }
 
@@ -437,6 +438,7 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
   let workflowId: string | undefined;
   let parentIssueId: string | undefined;
   let approvalNote: string | undefined;
+  let dryRun = false;
   let force = false;
   const positional: string[] = [];
 
@@ -448,6 +450,11 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
 
     if (parseBooleanFlag(token)) {
       force = true;
+      continue;
+    }
+
+    if (token === "--dry-run" || token === "--preview") {
+      dryRun = true;
       continue;
     }
 
@@ -578,6 +585,7 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
     kind: "issue:create",
     title,
     type,
+    dryRun,
     force,
     ...(description === undefined ? {} : { description }),
     ...(workflowId === undefined ? {} : { workflowId }),
@@ -589,6 +597,7 @@ function parseIssueCreateCommand(rest: readonly string[]): ParsedIssueCreateComm
 function parseRequestCreateCommand(rest: readonly string[]): ParsedRequestCreateCommand {
   let type: (typeof issueTypeValues)[number] | undefined;
   let workflowId: string | undefined;
+  let dryRun = false;
   let force = false;
   const positional: string[] = [];
 
@@ -600,6 +609,11 @@ function parseRequestCreateCommand(rest: readonly string[]): ParsedRequestCreate
 
     if (parseBooleanFlag(token)) {
       force = true;
+      continue;
+    }
+
+    if (token === "--dry-run" || token === "--preview") {
+      dryRun = true;
       continue;
     }
 
@@ -644,6 +658,7 @@ function parseRequestCreateCommand(rest: readonly string[]): ParsedRequestCreate
   return {
     kind: "request:create",
     request,
+    dryRun,
     force,
     ...(type === undefined ? {} : { type }),
     ...(workflowId === undefined ? {} : { workflowId }),
@@ -2193,6 +2208,9 @@ async function findReusableIssueWorkspace(
   rootDir: string,
   analysis: RequestAnalysis,
   workflowId: string,
+  options: {
+    readonly allowLogMismatch?: boolean;
+  } = {},
 ): Promise<Awaited<ReturnType<typeof readIssueWorkspace>> | null> {
   let bestMatch: {
     readonly workspace: NonNullable<Awaited<ReturnType<typeof readIssueWorkspace>>>;
@@ -2243,7 +2261,9 @@ async function findReusableIssueWorkspace(
     return null;
   }
 
-  await assertIssueWorkspaceLogAlignment(rootDir, bestMatch.workspace);
+  if (options.allowLogMismatch !== true) {
+    await assertIssueWorkspaceLogAlignment(rootDir, bestMatch.workspace);
+  }
   return bestMatch.workspace;
 }
 
@@ -2347,10 +2367,10 @@ function renderClarificationQuestions(
 
 function formatIssueSummary(result: Awaited<ReturnType<typeof createIssueWorkspace>>): string {
   const lines = [
-    `Created issue ${result.issue.id}.`,
+    `${result.reusedExisting ? "Reused issue" : "Created issue"} ${result.issue.id}.`,
     `Type: ${result.issue.type}`,
     `Workflow: ${result.issue.workflowId}`,
-    `Created files: ${result.createdFiles.join(", ")}`,
+    `Created files: ${result.createdFiles.length === 0 ? "none" : result.createdFiles.join(", ")}`,
     `Log: ${result.issue.logPath}`,
   ];
 
@@ -2370,10 +2390,90 @@ function formatIssueSummary(result: Awaited<ReturnType<typeof createIssueWorkspa
   return lines.join("\n");
 }
 
+interface IssueCreationPreview {
+  readonly issueId: string;
+  readonly folderName: string;
+  readonly title: string;
+  readonly slug: string;
+  readonly type: (typeof issueTypeValues)[number];
+  readonly workflowId: string;
+  readonly parentIssueId: string | null;
+  readonly filesToCreate: readonly string[];
+  readonly safeToCreate: boolean;
+}
+
+function buildIssueCreationFiles(issueId: string, includeDecomposition: boolean): readonly string[] {
+  return [
+    "issue.md",
+    "issue.json",
+    "workflow-state.json",
+    ...(includeDecomposition ? ["decomposition.json"] : []),
+    "decisions/README.md",
+    "reviews/README.md",
+    `.flowness/logs/${issueId}.md`,
+  ];
+}
+
+function formatIssueCreationPreview(items: readonly IssueCreationPreview[], dryRun: boolean): string {
+  const lines: string[] = [];
+  if (dryRun) {
+    lines.push("Dry run: no files will be written.");
+  }
+
+  lines.push(`Planned issues: ${items.length}`);
+  for (const [index, item] of items.entries()) {
+    lines.push("");
+    lines.push(`Planned issue ${index + 1}/${items.length}: ${item.issueId}`);
+    lines.push(`Folder: ${item.folderName}`);
+    lines.push(`Title: ${item.title}`);
+    lines.push(`Slug: ${item.slug}`);
+    lines.push(`Workflow: ${item.workflowId}`);
+    lines.push(`Type: ${item.type}`);
+    lines.push(`Parent: ${item.parentIssueId ?? "none"}`);
+    lines.push(`Files: ${item.filesToCreate.join(", ")}`);
+    lines.push(`Collision: ${item.safeToCreate ? "none" : "collision detected"}`);
+    lines.push(`Safe to create: ${item.safeToCreate ? "yes" : "no"}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatRequestIssuePreview(
+  analysis: RequestAnalysis,
+  plannedIssues: readonly IssueCreationPreview[],
+  reuseLabel: string,
+): string {
+  const lines = [
+    `Flowness analyzed this as ${formatRequestCategoryLabel(analysis.category)}.`,
+    reuseLabel,
+    `Execution mode: ${analysis.executionMode}`,
+    `Issue count: ${analysis.issueCount}`,
+    `Confidence: ${analysis.confidence.toFixed(2)}`,
+    `Safe to proceed: ${analysis.safeToProceed ? "yes" : "no"}`,
+    `Next action: ${analysis.nextAction}`,
+  ];
+
+  if (analysis.reviewTarget !== undefined) {
+    const reviewTargetFiles = analysis.reviewTarget.files.length === 0 ? "" : ` (${analysis.reviewTarget.files.join(", ")})`;
+    lines.push(`Review target: ${analysis.reviewTarget.label}${reviewTargetFiles}`);
+  }
+
+  if (plannedIssues.length > 0) {
+    lines.push("");
+    lines.push(formatIssueCreationPreview(plannedIssues, true));
+  }
+
+  lines.push("");
+  lines.push(formatRequestAnalysisSummary(analysis));
+  return lines.join("\n");
+}
+
 function formatRequestCreateSummary(input: {
   readonly analysis: RequestAnalysis;
   readonly issue: IssueRecord;
   readonly reused: boolean;
+  readonly plannedIssues?: readonly IssueCreationPreview[];
+  readonly dryRun?: boolean;
 }): string {
   const lines = [
     `Flowness analyzed this as ${formatRequestCategoryLabel(input.analysis.category)}.`,
@@ -2423,6 +2523,11 @@ function formatRequestCreateSummary(input: {
 
   if (input.analysis.needsClarification) {
     lines.push("Implementation is blocked until clarification questions are answered.");
+  }
+
+  if (input.plannedIssues !== undefined && input.plannedIssues.length > 0) {
+    lines.push("");
+    lines.push(formatIssueCreationPreview(input.plannedIssues, input.dryRun ?? false));
   }
 
   return lines.join("\n");
@@ -2870,11 +2975,13 @@ function formatStatusSummary(input: {
   readonly latestLogStep: string | null;
   readonly evidenceCount: number;
   readonly logPath: string;
+  readonly warning: string | null;
 }): string {
   return [
     `Issue: ${input.issueId}`,
     `Workflow: ${input.workflowId}`,
     `Layout: ${input.layout}`,
+    ...(input.warning === null ? [] : [`Warning: ${input.warning}`]),
     `Current step: ${input.currentStep.length === 0 ? "complete" : input.currentStep}`,
     `Completed steps: ${input.completedSteps.length === 0 ? "none" : input.completedSteps.join(", ")}`,
     `Blocked: ${input.blocked ? "yes" : "no"}`,
@@ -3325,13 +3432,18 @@ async function assertEvidenceReviewLoggedBeforeClose(
 async function loadIssueWorkspaceOrThrow(
   rootDir: string,
   issueId: string,
+  options: {
+    readonly allowLogMismatch?: boolean;
+  } = {},
 ) {
   const workspace = await readIssueWorkspace(rootDir, issueId);
   if (workspace === null) {
     throw new Error(`Issue workspace not found: ${issueId}`);
   }
 
-  await assertIssueWorkspaceLogAlignment(rootDir, workspace);
+  if (options.allowLogMismatch !== true) {
+    await assertIssueWorkspaceLogAlignment(rootDir, workspace);
+  }
   return workspace;
 }
 
@@ -3701,11 +3813,41 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
   const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const workflowId = command.workflowId ?? config.defaultWorkflows[command.type];
   const workflow = await buildWorkflowDefinition(rootDir, workflowId);
+  const allocation = await allocateIssueIdentity(rootDir, command.title);
+  const plannedIssues: IssueCreationPreview[] = [
+    {
+      issueId: allocation.issueId,
+      folderName: allocation.folderName,
+      title: command.title,
+      slug: allocation.slug,
+      type: command.type,
+      workflowId,
+      parentIssueId: command.parentIssueId ?? null,
+      filesToCreate: buildIssueCreationFiles(allocation.issueId, false),
+      safeToCreate: allocation.safeToCreate,
+    },
+  ];
+
+  if (command.dryRun) {
+    if (command.parentIssueId !== undefined) {
+      const parentWorkspace = await readIssueWorkspace(rootDir, command.parentIssueId);
+      if (parentWorkspace === null) {
+        throw new Error(`Parent issue not found: ${command.parentIssueId}`);
+      }
+    }
+
+    return {
+      exitCode: 0,
+      output: formatIssueCreationPreview(plannedIssues, true),
+    };
+  }
+
   const result = await createIssueWorkspace({
     rootDir,
     title: command.title,
     type: command.type,
     workflow,
+    issueId: allocation.issueId,
     force: command.force,
     ...(command.description === undefined ? {} : { description: command.description }),
     goal: command.description ?? command.title,
@@ -3823,6 +3965,8 @@ async function runIssueCreateCommand(command: ParsedIssueCreateCommand): Promise
     exitCode: 0,
     output: [
       formatIssueSummary(result),
+      "",
+      formatIssueCreationPreview(plannedIssues, false),
       ...(parentIssueLinked && command.approvalNote !== undefined && command.approvalNote.trim().length > 0
         ? ["", `Approval note: ${command.approvalNote}`]
         : []),
@@ -3868,7 +4012,64 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
   const projectAnalysis = await renderProjectAnalysis(rootDir, config.projectName);
   const issueType = command.type ?? analysis.issueType ?? "feature";
   const workflowId = command.workflowId ?? analysis.workflowId ?? config.defaultWorkflows[issueType];
-  const reusableWorkspace = await findReusableIssueWorkspace(rootDir, analysis, workflowId);
+  const effectiveWorkflow = await buildWorkflowDefinition(rootDir, workflowId);
+  const effectivePlan = analysis.issuePlan?.primaryIssue ?? buildFallbackIssuePlan(analysis, issueType, workflowId);
+  const primaryPlan: IssuePlan = {
+    ...effectivePlan,
+    type: issueType,
+    workflowId,
+  };
+  const parentAllocation = await allocateIssueIdentity(rootDir, primaryPlan.title);
+  const plannedIssues: IssueCreationPreview[] = [
+    {
+      issueId: parentAllocation.issueId,
+      folderName: parentAllocation.folderName,
+      title: primaryPlan.title,
+      slug: parentAllocation.slug,
+      type: primaryPlan.type,
+      workflowId: primaryPlan.workflowId,
+      parentIssueId: null,
+      filesToCreate: buildIssueCreationFiles(parentAllocation.issueId, analysis.issuePlan !== undefined),
+      safeToCreate: parentAllocation.safeToCreate,
+    },
+  ];
+
+  const plannedChildIssues: Array<{
+    readonly plan: IssuePlan;
+    readonly allocation: IssueCreationPreview;
+  }> = [];
+  if (analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined) {
+    const reservedIssueIds = new Set<string>([parentAllocation.issueId]);
+    for (const childPlan of analysis.issuePlan.childIssues) {
+      const childAllocation = await allocateIssueIdentity(rootDir, childPlan.title, [...reservedIssueIds]);
+      reservedIssueIds.add(childAllocation.issueId);
+      plannedChildIssues.push({
+        plan: childPlan,
+        allocation: {
+          issueId: childAllocation.issueId,
+          folderName: childAllocation.folderName,
+          title: childPlan.title,
+          slug: childAllocation.slug,
+          type: childPlan.type,
+          workflowId: childPlan.workflowId,
+          parentIssueId: parentAllocation.issueId,
+          filesToCreate: buildIssueCreationFiles(childAllocation.issueId, false),
+          safeToCreate: childAllocation.safeToCreate,
+        },
+      });
+    }
+  }
+
+  plannedIssues.push(...plannedChildIssues.map((entry) => entry.allocation));
+
+  if (command.dryRun) {
+    return {
+      exitCode: 0,
+      output: formatRequestIssuePreview(analysis, plannedIssues, "Dry run: no files will be written."),
+    };
+  }
+
+  const reusableWorkspace = await findReusableIssueWorkspace(rootDir, analysis, workflowId, { allowLogMismatch: true });
 
   let activeWorkspace: Awaited<ReturnType<typeof createIssueWorkspace>> | NonNullable<Awaited<ReturnType<typeof readIssueWorkspace>>>;
   let reusedExistingIssue = false;
@@ -3877,17 +4078,6 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
     activeWorkspace = reusableWorkspace;
     reusedExistingIssue = true;
   } else {
-    const effectiveWorkflow = await buildWorkflowDefinition(rootDir, workflowId);
-    const effectivePlan = analysis.issuePlan?.primaryIssue ?? buildFallbackIssuePlan(analysis, issueType, workflowId);
-    const primaryPlan: IssuePlan = {
-      ...effectivePlan,
-      type: issueType,
-      workflowId,
-    };
-    const nextSequence = await findNextIssueSequence(rootDir);
-    const childIssueIds = analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined && command.force
-      ? analysis.issuePlan.childIssues.map((child, index) => createIssueId(nextSequence + index + 1, child.title))
-      : [];
     const decomposition = analysis.issuePlan === undefined
       ? undefined
       : {
@@ -3899,38 +4089,32 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
     const parentResult = await createIssueWorkspace({
       rootDir,
       title: primaryPlan.title,
-      intent: analysis.intentSlug,
       type: primaryPlan.type,
       workflow: effectiveWorkflow,
       force: command.force,
-      sequence: nextSequence,
+      issueId: parentAllocation.issueId,
       description: command.request,
       goal: primaryPlan.goal,
       acceptanceCriteria: primaryPlan.acceptanceCriteria,
       dependencies: primaryPlan.dependencies,
       evidenceRequired: primaryPlan.evidenceRequired,
-      childIssueIds,
       ...(decomposition === undefined ? {} : { decomposition }),
     });
 
     activeWorkspace = parentResult;
 
     if (analysis.category === "multi_issue_project" && analysis.issuePlan !== undefined && command.force) {
-      for (let index = 0; index < analysis.issuePlan.childIssues.length; index += 1) {
-        const childPlan = analysis.issuePlan.childIssues[index];
-        if (childPlan === undefined) {
-          continue;
-        }
-
-        const childSequence = nextSequence + index + 1;
+      const createdChildIssueIds: string[] = [];
+      for (const childEntry of plannedChildIssues) {
+        const childPlan = childEntry.plan;
         const childWorkflow = await buildWorkflowDefinition(rootDir, childPlan.workflowId);
-        await createIssueWorkspace({
+        const childResult = await createIssueWorkspace({
           rootDir,
           title: childPlan.title,
           type: childPlan.type,
           workflow: childWorkflow,
           force: command.force,
-          sequence: childSequence,
+          issueId: childEntry.allocation.issueId,
           description: childPlan.goal,
           parentIssueId: parentResult.issue.id,
           goal: childPlan.goal,
@@ -3939,6 +4123,26 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
           evidenceRequired: childPlan.evidenceRequired,
           initialState: "blocked",
         });
+        createdChildIssueIds.push(childResult.issue.id);
+      }
+
+      if (createdChildIssueIds.length > 0) {
+        const updatedParentWorkspace = await writeIssueWorkspaceState(
+          rootDir,
+          {
+            ...parentResult.issue,
+            childIssueIds: createdChildIssueIds,
+          },
+          parentResult.workflowState,
+          command.request,
+        );
+        activeWorkspace = {
+          ...parentResult,
+          issue: updatedParentWorkspace.issue,
+          workflowState: updatedParentWorkspace.workflowState,
+          description: updatedParentWorkspace.description,
+          issuePaths: updatedParentWorkspace.issuePaths,
+        };
       }
     }
   }
@@ -4004,6 +4208,8 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
         analysis,
         issue: activeWorkspace.issue,
         reused: reusedExistingIssue,
+        plannedIssues,
+        dryRun: false,
       }),
       "",
       formatRequestAnalysisSummary(analysis),
@@ -4014,7 +4220,7 @@ async function runRequestCreateCommand(command: ParsedRequestCreateCommand): Pro
 async function runDecisionCreateCommand(command: ParsedDecisionCreateCommand): Promise<CliResult> {
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
-  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId, { allowLogMismatch: true });
   const config = await readProjectConfig(rootDir);
   const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const evidence = [
@@ -4086,7 +4292,7 @@ async function runDecisionCreateCommand(command: ParsedDecisionCreateCommand): P
 async function runReviewRunCommand(command: ParsedReviewRunCommand): Promise<CliResult> {
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
-  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId, { allowLogMismatch: true });
   const config = await readProjectConfig(rootDir);
   const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const evidence = [
@@ -4225,7 +4431,7 @@ async function runSkillRunCommand(command: ParsedSkillRunCommand): Promise<CliRe
   ].join("\n");
 
   if (command.issueId !== undefined) {
-    const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+    const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId, { allowLogMismatch: true });
     const config = await readProjectConfig(rootDir);
     const analysis = await renderProjectAnalysis(rootDir, config.projectName);
     const logEntry = createLogEntry({
@@ -4411,7 +4617,7 @@ async function runRuleApplyCommand(command: ParsedRuleApplyCommand): Promise<Cli
   ].join("\n");
 
   if (command.issueId !== undefined) {
-    const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+    const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId, { allowLogMismatch: true });
     const config = await readProjectConfig(rootDir);
     const analysis = await renderProjectAnalysis(rootDir, config.projectName);
     const logEntry = createLogEntry({
@@ -4879,7 +5085,7 @@ async function runRuleUpdateCommand(command: ParsedRuleUpdateCommand): Promise<C
 
   let issueLogPath: string | null = null;
   if (command.issueId !== undefined) {
-    const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+    const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId, { allowLogMismatch: true });
     const logEntry = createLogEntry({
       timestamp,
       step: "Rule Updated",
@@ -5085,7 +5291,7 @@ async function runWorkflowStepCommand(command: ParsedWorkflowStepCommand): Promi
 async function runWorkflowRecoverCommand(command: ParsedWorkflowRecoverCommand): Promise<CliResult> {
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
-  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId, { allowLogMismatch: true });
   const config = await readProjectConfig(rootDir);
   const projectAnalysis = await renderProjectAnalysis(rootDir, config.projectName);
   const workflow = await buildWorkflowDefinition(rootDir, workspace.issue.workflowId);
@@ -5166,13 +5372,11 @@ async function runStatusCommand(command: ParsedStatusCommand): Promise<CliResult
     };
   }
 
+  let mismatchWarning: string | null = null;
   try {
     await assertIssueWorkspaceLogAlignment(rootDir, workspace);
   } catch (error) {
-    return {
-      exitCode: 1,
-      output: error instanceof Error ? error.message : String(error),
-    };
+    mismatchWarning = error instanceof Error ? error.message : String(error);
   }
 
   const latestLogEntry = await readLatestIssueLogEntry(rootDir, workspace.issue.id);
@@ -5245,6 +5449,7 @@ async function runStatusCommand(command: ParsedStatusCommand): Promise<CliResult
       latestLogStep: latestLogEntry === null ? null : latestLogEntry.step,
       evidenceCount: evidence.length,
       logPath: workspace.issue.logPath,
+      warning: mismatchWarning,
     }),
   };
 }
@@ -5252,7 +5457,7 @@ async function runStatusCommand(command: ParsedStatusCommand): Promise<CliResult
 async function runEvidenceAddCommand(command: ParsedEvidenceAddCommand): Promise<CliResult> {
   const rootDir = process.cwd();
   await ensureInitializedProject(rootDir);
-  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId);
+  const workspace = await loadIssueWorkspaceOrThrow(rootDir, command.issueId, { allowLogMismatch: true });
   const config = await readProjectConfig(rootDir);
   const analysis = await renderProjectAnalysis(rootDir, config.projectName);
   const evidence = createEvidenceRecord({
@@ -5606,6 +5811,7 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
             kind: "request:create",
             request,
             force: false,
+            dryRun: false,
           });
         }
       }

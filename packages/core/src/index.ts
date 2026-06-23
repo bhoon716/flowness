@@ -18,6 +18,7 @@ export {
   readTextFile,
   makeExecutable,
   slugify,
+  slugifyReadable,
   sha256Hex,
   toUpperSnake,
   writeJsonFile,

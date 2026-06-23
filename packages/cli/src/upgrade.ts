@@ -96,7 +96,7 @@ function getCliVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     return pkg.version;
   } catch {
-    return "0.2.7";
+    return "0.2.8";
   }
 }
 
@@ -105,7 +105,7 @@ const targetHarnessVersion = getCliVersion();
 const upgradeMigrations: readonly UpgradeMigration[] = [
   {
     fromVersion: "0.2.6",
-    toVersion: "0.2.7",
+    toVersion: "0.2.8",
     title: "Safety and migration hardening",
     summary: "Preserve user-owned workspace data, surface risky command impact before execution, and make request decomposition explicit before multiple issues are created.",
     notes: [

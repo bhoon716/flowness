@@ -1654,6 +1654,7 @@ export function renderGeneratedAgentsMarkdown(analysis: ProjectAnalysis): string
     "# AGENTS",
     "",
     "Keep this file short. After `flowness init`, talk to the coding agent in natural language first, then use the generated files when you need setup, debugging, recovery, inspection, or manual escape hatches.",
+    "Respond to the user in the user's language unless the user asks otherwise. Keep internal IDs, filenames, commands, and technical symbols in English when that is clearer.",
     "Existing project upgrades must preserve user data, and dangerous commands need a dry-run impact report plus explicit approval before execution.",
     "Broad requests may decompose into 1..N issues when that makes the work safer or clearer.",
     "",
@@ -1796,7 +1797,7 @@ function renderGeneratedHarnessManifestJson(
   generatedFileHashes: GeneratedFileHashes = {},
 ): string {
   const payload = {
-    version: "0.2.7",
+    version: "0.2.8",
     project: {
       name: analysis.projectName,
       packageManager: analysis.packageManager,

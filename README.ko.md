@@ -23,7 +23,7 @@
 
 ## Flowness란?
 
-Flowness는 추적 가능한 AI 에이전트 개발을 위한 대화형 워크플로우 하네스(conversational workflow harness)입니다. 요청을 이슈로 라우팅하고, 명시적인 워크플로우를 통해 실행하며, 증거와 로그를 append-only(추가 전용) 형식으로 보존하고, 구조화된 review 체크와 rule 변경을 추적 가능하게 유지합니다. 더 넓은 요청은 더 안전하거나 명확할 때 1..N개의 이슈로 분해할 수 있고, 위험한 명령은 실행 전에 dry-run 영향 보고와 명시적 승인이 필요합니다.
+Flowness는 추적 가능한 AI 에이전트 개발을 위한 대화형 워크플로우 하네스(conversational workflow harness)입니다. 요청을 이슈로 라우팅하고, 명시적인 워크플로우를 통해 실행하며, 증거와 로그를 append-only(추가 전용) 형식으로 보존하고, 구조화된 review 체크와 rule 변경을 추적 가능하게 유지합니다. 더 넓은 요청은 더 안전하거나 명확할 때 1..N개의 이슈로 분해할 수 있고, 위험한 명령은 실행 전에 dry-run 영향 보고와 명시적 승인이 필요합니다. 사용자에게 보여주는 진행 메시지와 최종 보고서는 가능한 한 사용자의 언어를 따르고, 내부 ID·파일명·명령·기술 기호는 영어로 유지해도 됩니다.
 
 ## CLI 설치
 
@@ -57,6 +57,7 @@ flowness status --issue ISSUE-001-AUTH
 
 - 명시적인 워크플로우를 통해 요청을 이슈로 라우팅합니다.
 - `flowness locate`를 사용하여 탐색 범위를 제한합니다.
+- `flowness issue:create --dry-run`으로 이슈 ID와 slug를 미리 확인할 수 있습니다.
 - `flowness test --summary`, `flowness audit --changed`, `flowness upgrade --dry-run`, `flowness upgrade --explain`, `flowness upgrade --apply`를 제공합니다.
 - `flowness review:run`을 통해 구조화된 review 체크를 실행합니다.
 - `flowness step`, `flowness workflow:step`, `flowness status`를 통해 진행 상황을 명시적으로 관리합니다.

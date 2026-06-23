@@ -20,7 +20,7 @@ import {
   resolveLegacyIssuePaths,
   resolveIssuePaths,
   resolveWorkspacePaths,
-  createIssueSlugFromRequest,
+  slugifyReadable,
   toUpperSnake,
   writeJsonFile,
   writeTextFile,
@@ -39,9 +39,149 @@ export function createIssueId(sequence: number, title: string): string {
     throw new Error("Issue sequence must be a positive integer.");
   }
 
+  return createIssueIdFromSlug(sequence, createIssueSlugFromTitle(title));
+}
+
+export function createIssueSlugFromTitle(title: string): string {
+  return slugifyReadable(title);
+}
+
+export function createIssueIdFromSlug(sequence: number, slug: string): string {
+  if (!Number.isInteger(sequence) || sequence < 1) {
+    throw new Error("Issue sequence must be a positive integer.");
+  }
+
   const sequencePart = String(sequence).padStart(3, "0");
-  const titlePart = toUpperSnake(createIssueSlugFromRequest(title));
+  const titlePart = toUpperSnake(slug);
   return `ISSUE-${sequencePart}-${titlePart}`;
+}
+
+function extractIssueSequence(issueId: string): number | null {
+  const match = issueId.match(/^ISSUE-(\d{3})-/);
+  if (match?.[1] === undefined) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+async function collectIssueIdentityNames(rootDir: string): Promise<Set<string>> {
+  const names = new Set<string>();
+  const issueRoots = [
+    resolveWorkspacePaths(rootDir).agentIssuesDir,
+    joinPaths(rootDir, ".agent", "issues"),
+  ];
+  const logRoots = [
+    resolveWorkspacePaths(rootDir).agentLogsDir,
+    joinPaths(rootDir, ".agent", "logs"),
+  ];
+
+  for (const issueRoot of issueRoots) {
+    if (!(await pathExists(issueRoot))) {
+      continue;
+    }
+
+    const entries = await readdir(issueRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        names.add(entry.name);
+      }
+    }
+  }
+
+  for (const logRoot of logRoots) {
+    if (!(await pathExists(logRoot))) {
+      continue;
+    }
+
+    const entries = await readdir(logRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) {
+        continue;
+      }
+
+      names.add(entry.name.slice(0, -3));
+    }
+  }
+
+  return names;
+}
+
+export interface IssueIdentityAllocation {
+  readonly sequence: number;
+  readonly slug: string;
+  readonly issueId: string;
+  readonly folderName: string;
+  readonly issuePaths: ReturnType<typeof resolveIssuePaths>;
+  readonly legacyIssuePaths: ReturnType<typeof resolveLegacyIssuePaths>;
+  readonly collision: {
+    readonly currentIssueDir: boolean;
+    readonly legacyIssueDir: boolean;
+    readonly currentLogFile: boolean;
+    readonly legacyLogFile: boolean;
+  };
+  readonly safeToCreate: boolean;
+}
+
+export async function allocateIssueIdentity(
+  rootDir: string,
+  title: string,
+  reservedIssueIds: readonly string[] = [],
+): Promise<IssueIdentityAllocation> {
+  const slug = createIssueSlugFromTitle(title);
+  const reservedIds = new Set(reservedIssueIds);
+  const reservedSequences = new Set(
+    [...reservedIds]
+      .map((issueId) => extractIssueSequence(issueId))
+      .filter((sequence): sequence is number => sequence !== null),
+  );
+  const existingNames = await collectIssueIdentityNames(rootDir);
+  const existingSequences = new Set(
+    [...existingNames]
+      .map((issueId) => extractIssueSequence(issueId))
+      .filter((sequence): sequence is number => sequence !== null),
+  );
+
+  let sequence = findNextIssueSequenceFromNames([...existingNames, ...reservedIds]);
+  while (existingSequences.has(sequence) || reservedSequences.has(sequence)) {
+    sequence += 1;
+  }
+
+  while (true) {
+    const issueId = createIssueIdFromSlug(sequence, slug);
+    const issuePaths = resolveIssuePaths(rootDir, issueId);
+    const legacyIssuePaths = resolveLegacyIssuePaths(rootDir, issueId);
+    const collision = {
+      currentIssueDir: await pathExists(issuePaths.issueDir),
+      legacyIssueDir: await pathExists(legacyIssuePaths.issueDir),
+      currentLogFile: await pathExists(issuePaths.logFile),
+      legacyLogFile: await pathExists(legacyIssuePaths.logFile),
+    };
+
+    if (
+      collision.currentIssueDir
+      || collision.legacyIssueDir
+      || collision.currentLogFile
+      || collision.legacyLogFile
+      || reservedIds.has(issueId)
+      || existingNames.has(issueId)
+    ) {
+      sequence += 1;
+      continue;
+    }
+
+    return {
+      sequence,
+      slug,
+      issueId,
+      folderName: formatIssueDirectoryName(issueId),
+      issuePaths,
+      legacyIssuePaths,
+      collision,
+      safeToCreate: true,
+    };
+  }
 }
 
 export function createIssueRecord(
@@ -207,6 +347,52 @@ function createInitialIssueLogEntry(
   };
 }
 
+function issueWorkspaceMatchesInput(
+  workspace: ReadIssueWorkspaceResult,
+  input: CreateIssueWorkspaceInput,
+): boolean {
+  const issue = workspace.issue;
+  return issue.title === input.title
+    && issue.type === input.type
+    && issue.workflowId === input.workflow.id
+    && (issue.parentIssueId ?? null) === (input.parentIssueId ?? null)
+    && (workspace.description ?? null) === (input.description ?? null);
+}
+
+async function findReusableIssueWorkspaceForInput(
+  rootDir: string,
+  input: CreateIssueWorkspaceInput,
+): Promise<ReadIssueWorkspaceResult | null> {
+  if (input.force === true || input.issueId !== undefined || input.sequence !== undefined) {
+    return null;
+  }
+
+  const issueRoots = [
+    resolveWorkspacePaths(rootDir).agentIssuesDir,
+    joinPaths(rootDir, ".agent", "issues"),
+  ];
+
+  for (const issueRoot of issueRoots) {
+    if (!(await pathExists(issueRoot))) {
+      continue;
+    }
+
+    const entries = await readdir(issueRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      const workspace = await readIssueWorkspace(rootDir, entry.name);
+      if (workspace !== null && issueWorkspaceMatchesInput(workspace, input)) {
+        return workspace;
+      }
+    }
+  }
+
+  return null;
+}
+
 function deriveIssueState(workflowState: WorkflowState): IssueState {
   if (workflowState.blocked) {
     return "blocked";
@@ -295,6 +481,7 @@ export interface CreateIssueWorkspaceInput {
   readonly workflow: WorkflowDefinition;
   readonly description?: string;
   readonly force?: boolean;
+  readonly issueId?: string;
   readonly sequence?: number;
   readonly createdAt?: string;
   readonly initialState?: IssueState;
@@ -313,6 +500,7 @@ export interface CreateIssueWorkspaceResult {
   readonly initialLogEntry: LogEntry;
   readonly createdFiles: readonly string[];
   readonly issuePaths: ReturnType<typeof resolveIssuePaths>;
+  readonly reusedExisting: boolean;
 }
 
 export interface ReadIssueWorkspaceResult {
@@ -330,11 +518,28 @@ export async function createIssueWorkspace(
   }
 
   const createdAt = input.createdAt ?? new Date().toISOString();
-  const sequence = input.sequence ?? await findNextIssueSequence(input.rootDir);
-  const issueId = createIssueId(sequence, input.intent ?? input.title);
+  const force = input.force ?? false;
+  if (!force) {
+    const reusableWorkspace = await findReusableIssueWorkspaceForInput(input.rootDir, input);
+    if (reusableWorkspace !== null) {
+      return {
+        issue: reusableWorkspace.issue,
+        workflowState: reusableWorkspace.workflowState,
+        initialLogEntry: createInitialIssueLogEntry(reusableWorkspace.issue, input.workflow, []),
+        createdFiles: [],
+        issuePaths: reusableWorkspace.issuePaths,
+        reusedExisting: true,
+      };
+    }
+  }
+
+  const issueId = input.issueId ?? (
+    input.sequence === undefined
+      ? (await allocateIssueIdentity(input.rootDir, input.title)).issueId
+      : createIssueId(input.sequence, input.title)
+  );
   const issuePaths = resolveIssuePaths(input.rootDir, issueId);
   const legacyIssuePaths = resolveLegacyIssuePaths(input.rootDir, issueId);
-  const force = input.force ?? false;
   const createdFiles: string[] = [];
 
   if (!force && (await pathExists(issuePaths.issueDir) || await pathExists(legacyIssuePaths.issueDir))) {
@@ -426,6 +631,7 @@ export async function createIssueWorkspace(
     initialLogEntry,
     createdFiles,
     issuePaths,
+    reusedExisting: false,
   };
 }
 

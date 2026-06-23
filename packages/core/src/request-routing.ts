@@ -1015,6 +1015,12 @@ function stripIntentNoise(value: string): string {
     .trim();
 }
 
+function stripTrailingActionWords(value: string): string {
+  return value
+    .replace(/\s*(?:please\s+)?(?:build|create|make|add|implement|ship|wire up|integrate|extend|update|modify|change|introduce|document|write|design|research|investigate|analyze|analyse|fix|refactor|split|decompose|plan|prepare|review|support|launch|release|set up|setup|도와줘|해줘|만들어줘|추가해줘|구현해줘|수정해줘|고쳐줘|리팩터링해줘|기획해줘|작성해줘|설계해줘)\s*$/i, "")
+    .trim();
+}
+
 function findRuleMatchIndex(request: string, patterns: readonly RegExp[]): number | null {
   let bestIndex: number | null = null;
   for (const pattern of patterns) {
@@ -1089,7 +1095,7 @@ function toSuggestedTitle(request: string): string {
   }
 
   const [firstSegment = normalized] = splitRequestSegments(normalized);
-  const cleaned = stripTrailingNoise(stripIntentNoise(stripLeadingActionWords(firstSegment))).trim();
+  const cleaned = stripTrailingNoise(stripIntentNoise(stripTrailingActionWords(stripLeadingActionWords(firstSegment)))).trim();
   if (cleaned.length === 0) {
     return "Request";
   }

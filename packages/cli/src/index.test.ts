@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseCommand, runCli } from "./index.js";
@@ -380,7 +381,7 @@ test("runCli initializes the .flowness workspace and keeps legacy dirs absent", 
       readonly auditChanged: string;
     };
   };
-  assert.equal(manifest.version, "0.2.7");
+  assert.equal(manifest.version, "0.2.8");
   assert.equal(manifest.contextFiles.findings, ".flowness/findings/README.md");
   assert.equal(manifest.commands.reviewRun, "flowness review:run --issue ISSUE-ID");
   assert.equal(manifest.commands.locate, "flowness locate \"<task description>\"");
@@ -399,16 +400,16 @@ test("runCli routes requests through the new run alias and reuses matching issue
     const firstResult = await runCli(["run", "회원가입 로그인 기능 만들어줘"]);
     assert.equal(firstResult.exitCode, 0);
     assert.match(firstResult.output, /Flowness analyzed this as a development task\./);
-    assert.match(firstResult.output, /Created issue ISSUE-001-SIGNUP-LOGIN and routed it to feature-development\./);
+    assert.match(firstResult.output, /Created issue ISSUE-001-회원가입-로그인-기능 and routed it to feature-development\./);
     assert.match(firstResult.output, /Workflow: feature-development/);
     assert.match(firstResult.output, /Implementation is blocked until clarification questions are answered\./);
 
     const secondResult = await runCli(["request:create", "회원가입 로그인 기능 만들어줘"]);
     assert.equal(secondResult.exitCode, 0);
-    assert.match(secondResult.output, /Reused existing issue ISSUE-001-SIGNUP-LOGIN and routed it to feature-development\./);
+    assert.match(secondResult.output, /Reused existing issue ISSUE-001-회원가입-로그인-기능 and routed it to feature-development\./);
 
     const directories = await issueDirectories(rootDir);
-    assert.deepEqual(directories, ["ISSUE-001-SIGNUP-LOGIN"]);
+    assert.deepEqual(directories, ["ISSUE-001-회원가입-로그인-기능"]);
   });
 });
 
@@ -428,10 +429,10 @@ test("runCli routes review requests to code-review with a concrete target", asyn
     assert.match(result.output, /Issue type: review/);
     assert.match(result.output, /Review target: PR or Branch/);
     assert.match(result.output, /Clarification required: no/);
-    assert.match(result.output, /Created issue ISSUE-001-REVIEW-PR-BRANCH and routed it to code-review\./);
+    assert.match(result.output, /Created issue ISSUE-001-REVIEW-PR-OR-BRANCH and routed it to code-review\./);
 
     const directories = await issueDirectories(rootDir);
-    assert.deepEqual(directories, ["ISSUE-001-REVIEW-PR-BRANCH"]);
+    assert.deepEqual(directories, ["ISSUE-001-REVIEW-PR-OR-BRANCH"]);
   });
 });
 
@@ -495,6 +496,9 @@ test("runCli proposes broad product decomposition before creating child issues",
     assert.match(result.output, /Execution mode: decompose_project/);
     assert.match(result.output, /Safe to proceed: no/);
     assert.match(result.output, /Next action: clarify_and_decompose/);
+    assert.match(result.output, /Planned issues: \d+/);
+    assert.match(result.output, /Planned issue 1\/\d+: ISSUE-001-/);
+    assert.match(result.output, /Slug:/);
     assert.match(result.output, /Proposed decomposition:/);
     assert.match(result.output, /Child issues were not created yet\. Re-run with --force/);
     assert.match(result.output, /Created issue ISSUE-001-/);
@@ -516,6 +520,47 @@ test("runCli proposes broad product decomposition before creating child issues",
   });
 });
 
+test("runCli issue:create --dry-run previews issue allocation without writing files", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-issue-dry-run-"));
+  await seedProject(rootDir);
+
+  const initResult = await runCli(["init", rootDir, "--name", "issue-dry-run-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli(["issue:create", "--title", "Sign in", "--type", "feature", "--dry-run"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Dry run: no files will be written\./);
+    assert.match(result.output, /Planned issue 1\/1: ISSUE-001-SIGN-IN/);
+    assert.match(result.output, /Slug: sign-in/);
+    assert.match(result.output, /Safe to create: yes/);
+
+    const directories = await issueDirectories(rootDir);
+    assert.deepEqual(directories, []);
+  });
+});
+
+test("runCli request:create --dry-run previews multi-issue allocation without writing files", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-request-dry-run-"));
+  await seedProject(rootDir);
+
+  const initResult = await runCli(["init", rootDir, "--name", "request-dry-run-project"]);
+  assert.equal(initResult.exitCode, 0);
+
+  await withWorkingDirectory(rootDir, async () => {
+    const result = await runCli(["request:create", "전체 쇼핑몰 만들어줘", "--dry-run"]);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Dry run: no files will be written\./);
+    assert.match(result.output, /Planned issues: \d+/);
+    assert.match(result.output, /Planned issue 1\/\d+: ISSUE-001-/);
+    assert.match(result.output, /Slug:/);
+    assert.match(result.output, /Safe to create: yes/);
+
+    const directories = await issueDirectories(rootDir);
+    assert.deepEqual(directories, []);
+  });
+});
+
 test("runCli creates child issues when broad decomposition is explicitly approved", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-broad-force-"));
   await seedProject(rootDir);
@@ -526,6 +571,8 @@ test("runCli creates child issues when broad decomposition is explicitly approve
   await withWorkingDirectory(rootDir, async () => {
     const result = await runCli(["run", "전체 쇼핑몰 만들어줘", "--force"]);
     assert.equal(result.exitCode, 0);
+    assert.match(result.output, /Planned issues: \d+/);
+    assert.match(result.output, /Planned issue 1\/\d+: ISSUE-001-/);
     assert.match(result.output, /Proposed decomposition:/);
     assert.match(result.output, /Decomposition approval was granted, so child issues were created\./);
 
@@ -906,7 +953,7 @@ test("runCli upgrade --dry-run reports a plan without writing files", async () =
     const result = await runCli(["upgrade", "--dry-run"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: legacy/);
-    assert.match(result.output, /Target version: 0\.2\.7/);
+    assert.match(result.output, /Target version: 0\.2\.8/);
     assert.match(result.output, /Risk level: /);
     assert.match(result.output, /Migrations:/);
     assert.match(result.output, /Will regenerate:/);
@@ -980,7 +1027,7 @@ test("runCli upgrade --apply backs up files and preserves user-owned content", a
     const result = await runCli(["upgrade", "--apply", "--force"]);
     assert.equal(result.exitCode, 0);
     assert.match(result.output, /Current version: 0\.1\.4/);
-    assert.match(result.output, /Target version: 0\.2\.7/);
+    assert.match(result.output, /Target version: 0\.2\.8/);
     assert.match(result.output, /Backup path:/);
     assert.match(result.output, /Report path:/);
     assert.match(result.output, /Migration plan path:/);
@@ -1065,8 +1112,9 @@ test("runCli surfaces blocked human gates as pending approval", async () => {
   assert.equal(initResult.exitCode, 0);
 
   await withWorkingDirectory(rootDir, async () => {
-    const issueResult = await runCli(["issue:create", "--title", "Sign in", "--type", "feature"]);
+    const issueResult = await runCli(["run", "회원가입 로그인 기능 만들어줘"]);
     assert.equal(issueResult.exitCode, 0);
+    assert.match(issueResult.output, /Created issue ISSUE-001-회원가입-로그인-기능 and routed it to feature-development\./);
 
     const [issueName] = await issueDirectories(rootDir);
     if (issueName === undefined) {
@@ -1088,71 +1136,95 @@ test("runCli surfaces blocked human gates as pending approval", async () => {
   });
 });
 
-test("runCli status, evidence, and step commands block manual state mismatches", async () => {
+test("runCli step blocks manual state mismatches while evidence and review commands still work", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "flowness-cli-state-"));
   await seedProject(rootDir);
+  const cliBinPath = fileURLToPath(new URL("../bin.js", import.meta.url));
+  const runCliAtRoot = (args: readonly string[]) => {
+    const result = spawnSync(process.execPath, [cliBinPath, ...args], {
+      cwd: rootDir,
+      encoding: "utf8",
+    });
 
-  const initResult = await runCli(["init", rootDir, "--name", "state-project"]);
+    return {
+      exitCode: result.status ?? 1,
+      output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    };
+  };
+
+  const initResult = runCliAtRoot(["init", rootDir, "--name", "state-project"]);
   assert.equal(initResult.exitCode, 0);
 
-  await withWorkingDirectory(rootDir, async () => {
-    const issueResult = await runCli(["issue:create", "--title", "Sign in", "--type", "feature"]);
-    assert.equal(issueResult.exitCode, 0);
+  const issueResult = runCliAtRoot(["issue:create", "--title", "Sign in", "--type", "feature"]);
+  assert.equal(issueResult.exitCode, 0);
 
-    const [issueName] = await issueDirectories(rootDir);
-    if (issueName === undefined) {
-      throw new Error("Expected issue workspace to be created.");
-    }
+  const [issueName] = await issueDirectories(rootDir);
+  if (issueName === undefined) {
+    throw new Error("Expected issue workspace to be created.");
+  }
 
-    const statusResult = await runCli(["status", "--issue", issueName]);
-    assert.equal(statusResult.exitCode, 0);
-    assert.match(statusResult.output, /Layout: flowness/);
-    assert.match(statusResult.output, /Current step: Intake/);
+  const statusResult = runCliAtRoot(["status", "--issue", issueName]);
+  assert.equal(statusResult.exitCode, 0);
+  assert.match(statusResult.output, /Layout: flowness/);
+  assert.match(statusResult.output, /Current step: Intake/);
 
-    const evidenceResult = await runCli(["evidence:add", "--issue", issueName, "--title", "Repository README", "--location", "README.md"]);
-    assert.equal(evidenceResult.exitCode, 0);
-    assert.match(evidenceResult.output, /Recorded evidence for/);
-    assert.match(evidenceResult.output, /Kind: file/);
+  const evidenceResult = runCliAtRoot(["evidence:add", "--issue", issueName, "--title", "Repository README", "--location", "README.md"]);
+  assert.equal(evidenceResult.exitCode, 0);
+  assert.match(evidenceResult.output, /Recorded evidence for/);
+  assert.match(evidenceResult.output, /Kind: file/);
 
-    const firstStep = await runCli(["step", "--issue", issueName, "--approve"]);
-    assert.equal(firstStep.exitCode, 0);
-    assert.match(firstStep.output, /Completed step: Intake/);
-    assert.match(firstStep.output, /Status: completed/);
-    assert.match(firstStep.output, /What was done:/);
-    assert.match(firstStep.output, /Evidence created:/);
-    assert.match(firstStep.output, /Gate\/review: passed/);
-    assert.match(firstStep.output, /Current issue state:/);
-    assert.match(firstStep.output, /Next step file:/);
+  const firstStep = runCliAtRoot(["step", "--issue", issueName, "--approve"]);
+  assert.equal(firstStep.exitCode, 0);
+  assert.match(firstStep.output, /Completed step: Intake/);
+  assert.match(firstStep.output, /Status: completed/);
+  assert.match(firstStep.output, /What was done:/);
+  assert.match(firstStep.output, /Evidence created:/);
+  assert.match(firstStep.output, /Gate\/review: passed/);
+  assert.match(firstStep.output, /Current issue state:/);
+  assert.match(firstStep.output, /Next step file:/);
 
-    await unlink(join(rootDir, "docs", "PRD.md"));
-    await unlink(join(rootDir, "docs", "ARD.md"));
+  await unlink(join(rootDir, "docs", "PRD.md"));
+  await unlink(join(rootDir, "docs", "ARD.md"));
 
-    const blockedPlanningDocs = await runCli(["step", "--issue", issueName, "--approve"]);
-    assert.equal(blockedPlanningDocs.exitCode, 1);
-    assert.match(blockedPlanningDocs.output, /Status: blocked/);
-    assert.match(blockedPlanningDocs.output, /blocked: missing planning docs/);
-    assert.match(blockedPlanningDocs.output, /Current issue state: blocked/);
-    assert.match(blockedPlanningDocs.output, /Next step file:/);
+  const blockedPlanningDocs = runCliAtRoot(["step", "--issue", issueName, "--approve"]);
+  assert.equal(blockedPlanningDocs.exitCode, 1);
+  assert.match(blockedPlanningDocs.output, /Status: blocked/);
+  assert.match(blockedPlanningDocs.output, /blocked: missing planning docs/);
+  assert.match(blockedPlanningDocs.output, /Current issue state: blocked/);
+  assert.match(blockedPlanningDocs.output, /Next step file:/);
 
-    const planningBlockedStatus = await runCli(["status", "--issue", issueName]);
-    assert.equal(planningBlockedStatus.exitCode, 0);
-    assert.match(planningBlockedStatus.output, /Blocked: yes/);
+  const planningBlockedStatus = runCliAtRoot(["status", "--issue", issueName]);
+  assert.equal(planningBlockedStatus.exitCode, 0);
+  assert.match(planningBlockedStatus.output, /Blocked: yes/);
 
-    const workflowStatePath = join(rootDir, ".flowness", "issues", issueName, "workflow-state.json");
-    const workflowState = JSON.parse(await readFile(workflowStatePath, "utf8")) as { currentStep: string; updatedAt: string };
-    workflowState.currentStep = "Implementation";
-    workflowState.updatedAt = "2026-06-19T00:10:00.000Z";
-    await writeFile(workflowStatePath, `${JSON.stringify(workflowState, null, 2)}\n`, "utf8");
+  const workflowStatePath = join(rootDir, ".flowness", "issues", issueName, "workflow-state.json");
+  const workflowState = JSON.parse(await readFile(workflowStatePath, "utf8")) as {
+    currentStep: string;
+    updatedAt: string;
+    [key: string]: unknown;
+  };
+  workflowState.currentStep = "Implementation";
+  workflowState.updatedAt = "2026-06-19T00:10:00.000Z";
+  await writeFile(workflowStatePath, `${JSON.stringify(workflowState, null, 2)}\n`, "utf8");
 
-    const blockedStep = await runCli(["step", "--issue", issueName, "--approve"]);
-    assert.equal(blockedStep.exitCode, 1);
-    assert.match(blockedStep.output, /State\/log mismatch detected/);
-    assert.match(blockedStep.output, /Recovery:/);
+  const blockedStep = runCliAtRoot(["step", "--issue", issueName, "--approve"]);
+  assert.equal(blockedStep.exitCode, 1);
+  assert.match(blockedStep.output, /State\/log mismatch detected/);
+  assert.match(blockedStep.output, /Recovery:/);
 
-    const mismatchStatus = await runCli(["status", "--issue", issueName]);
-    assert.equal(mismatchStatus.exitCode, 1);
-    assert.match(mismatchStatus.output, /State\/log mismatch detected/);
-  });
+  const mismatchStatus = runCliAtRoot(["status", "--issue", issueName]);
+  assert.equal(mismatchStatus.exitCode, 0);
+  assert.match(mismatchStatus.output, /Warning: State\/log mismatch detected/);
+  assert.match(mismatchStatus.output, /Current step: Implementation/);
+
+  const mismatchEvidence = runCliAtRoot(["evidence:add", "--issue", issueName, "--title", "Mismatch README", "--location", "README.md"]);
+  assert.equal(mismatchEvidence.exitCode, 0);
+  assert.match(mismatchEvidence.output, /Recorded evidence for/);
+
+  const mismatchReview = runCliAtRoot(["review:run", "--issue", issueName]);
+  assert.equal(mismatchReview.exitCode, 1);
+  assert.match(mismatchReview.output, /Created review report/);
+  assert.match(mismatchReview.output, /Passed: no/);
 });
 
 test("runCli smoke test blocks commit until review evidence and review report are present", async () => {
@@ -1300,8 +1372,8 @@ test("runCli upgrade commands use dynamic versioning and respect overrides", asy
     // default target follows package version
     const defaultUpgrade = await runCli(["upgrade", "--dry-run"]);
     assert.equal(defaultUpgrade.exitCode, 0);
-    // targetVersion should match current package version which is "0.2.7"
-    assert.match(defaultUpgrade.output, /Target version: 0\.2\.7/);
+    // targetVersion should match current package version which is "0.2.8"
+    assert.match(defaultUpgrade.output, /Target version: 0\.2\.8/);
 
     // upgrade --to respects explicit target version
     const explicitUpgrade = await runCli(["upgrade", "--dry-run", "--to", "0.2.1"]);
